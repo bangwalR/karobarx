@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -996,7 +996,7 @@ function LeadsPageContent() {
                     </div>
                   </div>
 
-                  {enrichResult && (() => {
+                  {enrichResult && ((): ReactNode => {
                     const co = enrichResult.company as { name?: string; domain?: string; logo?: string; industry?: string; employees?: string | number; location?: string } | undefined;
                     const pe = enrichResult.person as { name?: string; title?: string } | undefined;
                     if (!co) return null;
