@@ -996,37 +996,36 @@ function LeadsPageContent() {
                     </div>
                   </div>
 
-                  {enrichResult && (
-                    <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-2 text-sm">
-                      {enrichResult.company && (() => {
-                        const co = enrichResult.company as { name?: string; domain?: string; logo?: string; industry?: string; employees?: string | number; location?: string };
-                        const pe = enrichResult.person as { name?: string; title?: string } | undefined;
-                        return (
-                          <div className="space-y-1">
-                            {co.logo && <img src={co.logo} alt="company logo" className="w-8 h-8 rounded" />}
-                            {co.name && <p className="font-medium">{co.name}</p>}
-                            {co.industry && <p className="text-xs text-gray-400">Industry: {co.industry}</p>}
-                            {co.employees && <p className="text-xs text-gray-400">Employees: {String(co.employees)}</p>}
-                            {co.location && (
-                              <p className="text-xs text-gray-400 flex items-center gap-1">
-                                <MapPin className="w-3 h-3" />{co.location}
-                              </p>
-                            )}
-                            {pe && (
-                              <div className="border-t border-gray-700 pt-2 space-y-1">
-                                {pe.name && <p className="font-medium">{pe.name}</p>}
-                                {pe.title && (
-                                  <p className="text-xs text-gray-400 flex items-center gap-1">
-                                    <Briefcase className="w-3 h-3" />{pe.title}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
+                  {enrichResult && (() => {
+                    const co = enrichResult.company as { name?: string; domain?: string; logo?: string; industry?: string; employees?: string | number; location?: string } | undefined;
+                    const pe = enrichResult.person as { name?: string; title?: string } | undefined;
+                    if (!co) return null;
+                    return (
+                      <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg space-y-2 text-sm">
+                        <div className="space-y-1">
+                          {co.logo && <img src={co.logo} alt="company logo" className="w-8 h-8 rounded" />}
+                          {co.name && <p className="font-medium">{co.name}</p>}
+                          {co.industry && <p className="text-xs text-gray-400">Industry: {co.industry}</p>}
+                          {co.employees && <p className="text-xs text-gray-400">Employees: {String(co.employees)}</p>}
+                          {co.location && (
+                            <p className="text-xs text-gray-400 flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />{co.location}
+                            </p>
+                          )}
+                          {pe && (
+                            <div className="border-t border-gray-700 pt-2 space-y-1">
+                              {pe.name && <p className="font-medium">{pe.name}</p>}
+                              {pe.title && (
+                                <p className="text-xs text-gray-400 flex items-center gap-1">
+                                  <Briefcase className="w-3 h-3" />{pe.title}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
