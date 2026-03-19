@@ -1,0 +1,50 @@
+# fly.toml — kept for reference only.
+# Recommended free deployment: Railway (see railway.json)
+# fly.io requires a credit card even for free tier.
+
+app = "mobilehub-wa"          # change this to your chosen app name on Fly.io
+primary_region = "sin"        # sin = Singapore (closest to India); bom = Mumbai (if available)
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Fly.io expects the app to listen on 8080 internally.
+# We pass PORT=8080 so index.js binds to the right port.
+[env]
+  PORT           = "8080"
+  NODE_ENV       = "production"
+  PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
+  WA_DATA_PATH   = "/data/wwebjs_auth"
+  # NEXT_APP_URL is set as a secret (fly secrets set NEXT_APP_URL=...)
+
+[[services]]
+  internal_port = 8080
+  protocol      = "tcp"
+
+  [[services.ports]]
+    port     = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port     = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type       = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.http_checks]]
+    interval       = 30000   # ms
+    timeout        = 5000
+    grace_period   = "30s"
+    method         = "GET"
+    path           = "/status"
+    protocol       = "http"
+    restart_limit  = 3
+
+# Persistent volume — keeps WA session across restarts so you don't re-scan QR
+# Create it once with: fly volumes create wa_data --size 1 --region sin
+[[mounts]]
+  source      = "wa_data"
+  destination = "/data"
