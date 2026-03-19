@@ -1,4 +1,76 @@
 services:
+  # ── Next.js CRM Dashboard ─────────────────────────────────────────────────
+  - type: web
+    name: mobilehub-crm
+    env: node
+    plan: free
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /admin/login
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: NEXTAUTH_URL
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: SITE_URL
+        sync: false
+      - key: NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: NTFY_TOPIC
+        sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: NEXT_PUBLIC_WHATSAPP_NUMBER
+        sync: false
+      - key: GOOGLE_CALENDAR_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CALENDAR_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALENDAR_REDIRECT_URI
+        sync: false
+      - key: NEXT_PUBLIC_GA4_MEASUREMENT_ID
+        sync: false
+      - key: N8N_WEBHOOK_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_NAME
+        value: MobileHub Delhi
+      - key: NEXT_PUBLIC_STORE_NAME
+        value: MobileHub Delhi
+      - key: NEXT_PUBLIC_STORE_ADDRESS
+        value: "Nehru Place, New Delhi - 110019"
+      - key: NEXT_PUBLIC_STORE_PHONE
+        value: "+91 98765 43210"
+      - key: NEXT_PUBLIC_STORE_EMAIL
+        value: contact@mobilehub.delhi
+
+  # ── WhatsApp Backend ──────────────────────────────────────────────────────
   - type: web
     name: whatsapp-backend
     env: docker
@@ -8,18 +80,10 @@ services:
     dockerContext: whatsapp-backend
     dockerfilePath: Dockerfile
     healthCheckPath: /status
-    # disk removed to allow free-tier deploys. Persistent data will not be retained
-    # across restarts on free instances. To persist auth data, consider mounting a
-    # paid persistent disk or using an external storage (S3, Cloudinary, DB, etc.).
     envVars:
       - key: WA_DATA_PATH
         value: /data/wwebjs_auth
-        scope: private
       - key: PUPPETEER_EXECUTABLE_PATH
         value: /usr/bin/chromium
-        scope: private
-    # Persistent disk and health check are defined above using the official
-    # render.yaml schema fields: `disk` and `healthCheckPath`.
-    # - `disk.mountPath` should match `WA_DATA_PATH` so LocalAuth data is persisted.
-    # - If your editor still shows validation errors, ensure it uses the Render
-    #   schema from https://render.com/schema/render.yaml.json
+      - key: NEXT_APP_URL
+        sync: false
