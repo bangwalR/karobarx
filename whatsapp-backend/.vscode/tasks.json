@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "WA Backend",
+			"type": "shell",
+			"command": "pkill -9 -f 'Google Chrome for Testing' 2>/dev/null; rm -f .wwebjs_auth/session-mobilehub/SingletonLock; sleep 1 && node index.js",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "WA Backend",
+			"type": "shell",
+			"command": "node index.js",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

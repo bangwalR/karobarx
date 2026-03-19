@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getProfileId } from "@/lib/profile";
+import { Notifications } from "@/lib/notify";
 
 // GET all inquiries with stats
 export async function GET(request: NextRequest) {
@@ -143,6 +144,9 @@ export async function POST(request: NextRequest) {
       console.error("Error creating inquiry:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Fire push notification (non-blocking)
+    Notifications.newInquiry(finalName, source || "WhatsApp", profileIdPost);
 
     return NextResponse.json({ inquiry: data, message: "Inquiry created successfully" }, { status: 201 });
   } catch (error) {

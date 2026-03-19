@@ -4,8 +4,14 @@ import { NextResponse } from "next/server";
 
 /**
  * Called immediately after login to initialise the active_profile_id cookie.
- * - Profile-specific admin → their own profile_id (from JWT)
- * - Super admin (profile_id = null) → the first business_config row
+ *
+ * Resolution order:
+ *  1. session.user.profile_id  (set when the user was linked to a tenant)
+ *  2. owner_id match on business_config  (owner who just completed setup)
+ *  3. needs_setup: true        (brand-new user — redirect to setup wizard)
+ *
+ * We NO LONGER silently fall back to the first row in the database, which
+ * would hand a new registrant a completely different tenant's data.
  */
 export async function POST() {
   try {
@@ -14,22 +20,34 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
     }
 
-    let profileId = session.user.profile_id;
+    let profileId: string | null = session.user.profile_id ?? null;
 
     if (!profileId) {
-      // Super admin — default to first profile
       const supabase = await createClient();
-      const { data } = await supabase
+
+      // Try to find a business_config owned by this admin user
+      const { data: owned } = await supabase
         .from("business_config")
         .select("id")
+        .eq("owner_id", session.user.id)
         .order("created_at", { ascending: true })
         .limit(1)
-        .single();
-      profileId = data?.id ?? null;
+        .maybeSingle();
+
+      if (owned?.id) {
+        profileId = owned.id;
+
+        // Persist the link so future logins skip this lookup
+        await supabase
+          .from("admin_users")
+          .update({ profile_id: profileId })
+          .eq("id", session.user.id);
+      }
     }
 
+    // No profile found at all → this is a brand-new owner who hasn't finished setup
     if (!profileId) {
-      return NextResponse.json({ success: true, note: "no profile found" });
+      return NextResponse.json({ success: true, needs_setup: true });
     }
 
     const response = NextResponse.json({ success: true, profile_id: profileId });

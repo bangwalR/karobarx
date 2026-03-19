@@ -1,20 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getProfileId } from "@/lib/profile";
 
 // GET - Retrieve settings
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
-    
-    const { data, error } = await supabase
-      .from("settings")
-      .select("*")
-      .single();
-    
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = no rows found, which is fine for first time
-      throw error;
+    const profileId = getProfileId(request);
+
+    let query = supabase.from("settings").select("*");
+    if (profileId) query = query.eq("profile_id", profileId);
+    const { data, error } = await query.limit(1).maybeSingle();
+
+    // Fallback for pre-migration rows that still have no profile_id
+    let finalData = data;
+    if (!finalData && profileId) {
+      const { data: fallback } = await supabase
+        .from("settings")
+        .select("*")
+        .is("profile_id", null)
+        .limit(1)
+        .maybeSingle();
+      finalData = fallback;
     }
+
+    if (error && error.code !== "PGRST116") throw error;
     
     // Return default settings if none exist
     const defaultSettings = {
@@ -48,7 +58,7 @@ export async function GET() {
     
     return NextResponse.json({
       success: true,
-      settings: data || defaultSettings,
+      settings: finalData || defaultSettings,
     });
   } catch (error) {
     console.error("Error fetching settings:", error);
@@ -64,31 +74,39 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
     const settings = await request.json();
-    
-    // Check if settings exist
-    const { data: existing } = await supabase
-      .from("settings")
-      .select("id")
-      .single();
-    
+
+    // profile_id can come from:
+    //  1. the request body (set by setup wizard for a freshly created profile)
+    //  2. the active_profile_id cookie (normal admin editing Settings page)
+    const profileId: string | null = settings.profile_id ?? getProfileId(request) ?? null;
+
+    // Strip profile_id from the settings payload so it isn’t written as a data field
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { profile_id: _pid, ...settingsPayload } = settings;
+
+    // Look up existing settings row for this profile
+    let query = supabase.from("settings").select("id");
+    if (profileId) {
+      query = query.eq("profile_id", profileId);
+    } else {
+      query = query.is("profile_id", null);
+    }
+    const { data: existing } = await query.limit(1).maybeSingle();
+
     let result;
     if (existing) {
-      // Update existing settings
       result = await supabase
         .from("settings")
-        .update({
-          ...settings,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ ...settingsPayload, updated_at: new Date().toISOString() })
         .eq("id", existing.id)
         .select()
         .single();
     } else {
-      // Insert new settings
       result = await supabase
         .from("settings")
         .insert({
-          ...settings,
+          ...settingsPayload,
+          ...(profileId ? { profile_id: profileId } : {}),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -118,12 +136,16 @@ export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient();
     const updates = await request.json();
-    
-    // Get existing settings
-    const { data: existing } = await supabase
-      .from("settings")
-      .select("*")
-      .single();
+    const profileId = getProfileId(request);
+
+    // Get existing settings for this profile
+    let query = supabase.from("settings").select("*");
+    if (profileId) {
+      query = query.eq("profile_id", profileId);
+    } else {
+      query = query.is("profile_id", null);
+    }
+    const { data: existing } = await query.limit(1).maybeSingle();
     
     let result;
     if (existing) {
@@ -141,11 +163,12 @@ export async function PUT(request: NextRequest) {
         .select()
         .single();
     } else {
-      // Insert new settings with updates
+      // Insert new settings row scoped to this profile
       result = await supabase
         .from("settings")
         .insert({
           ...updates,
+          ...(profileId ? { profile_id: profileId } : {}),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })

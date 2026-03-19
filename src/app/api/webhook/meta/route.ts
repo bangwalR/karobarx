@@ -31,25 +31,22 @@ export async function POST(request: NextRequest) {
 
     if (object === "page" || object === "instagram") {
       for (const pageEntry of entry || []) {
-        // Handle leadgen (Facebook Lead Ads)
+        const pageId: string | undefined = pageEntry.id;
+
+        // Handle messaging — Facebook Messenger (object="page") or Instagram DMs (object="instagram")
+        if (pageEntry.messaging) {
+          for (const messagingEvent of pageEntry.messaging) {
+            await handleMessagingWebhook(supabase, messagingEvent, object, pageId);
+          }
+        }
+
         if (pageEntry.changes) {
           for (const change of pageEntry.changes) {
+            // Lead Ads
             if (change.field === "leadgen") {
               await handleLeadgenWebhook(supabase, change.value, object);
             }
-          }
-        }
-
-        // Handle messaging (Instagram DMs, Facebook Messenger)
-        if (pageEntry.messaging) {
-          for (const messagingEvent of pageEntry.messaging) {
-            await handleMessagingWebhook(supabase, messagingEvent, object);
-          }
-        }
-
-        // Handle feed (comments, mentions)
-        if (pageEntry.changes) {
-          for (const change of pageEntry.changes) {
+            // Feed (comments, mentions)
             if (change.field === "feed" || change.field === "mentions") {
               await handleFeedWebhook(supabase, change.value, object);
             }
@@ -109,37 +106,62 @@ async function handleMessagingWebhook(
     message?: { mid: string; text: string };
     postback?: { payload: string };
   },
-  platform: string
+  platform: string,
+  pageId?: string
 ) {
   const senderId = event.sender.id;
+  const recipientId = event.recipient.id;
   const messageText = event.message?.text;
 
-  // Check if this user exists as a lead
+  // Determine which side is the page (our side)
+  const isFromUser = pageId ? senderId !== pageId : true;
+
+  if (!isFromUser) {
+    // Message sent by us — nothing to do
+    return;
+  }
+
+  if (platform === "page") {
+    // Facebook Messenger — bump last_synced_at to null so next poll re-fetches
+    await supabase
+      .from("social_connections")
+      .update({ last_synced_at: null })
+      .eq("platform", "facebook")
+      .eq("is_connected", true);
+  }
+
+  if (platform === "instagram") {
+    // Instagram DM — bump last_synced_at to null so next poll re-fetches
+    await supabase
+      .from("social_connections")
+      .update({ last_synced_at: null })
+      .eq("platform", "instagram")
+      .eq("is_connected", true);
+  }
+
+  if (!messageText) return;
+
+  // Upsert lead for new contacts
   const { data: existingLead } = await supabase
     .from("leads")
     .select("id")
     .eq("platform_user_id", senderId)
-    .single();
+    .maybeSingle();
 
-  if (!existingLead && messageText) {
-    // Create new lead from message
-    const leadData = {
-      source: platform === "instagram" ? "instagram" : "facebook",
+  if (!existingLead) {
+    const source = platform === "instagram" ? "instagram" : "facebook";
+    await supabase.from("leads").insert([{
+      source,
       platform_user_id: senderId,
       status: "new",
       notes: `First message: ${messageText}`,
       metadata: {
         first_message: messageText,
         timestamp: event.timestamp,
+        recipient_id: recipientId,
       },
-    };
-
-    await supabase.from("leads").insert([leadData]);
+    }]);
   }
-
-  // Log the message for conversation tracking
-  // You could integrate this with the existing whatsapp_messages table
-  // or create a unified messages table
 }
 
 async function handleFeedWebhook(

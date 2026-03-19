@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getProfileId } from "@/lib/profile";
+import { Notifications } from "@/lib/notify";
 
 function formatPrice(rupees: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -201,6 +202,14 @@ export async function POST(request: NextRequest) {
           }]);
       }
     }
+
+    // Fire push notification (non-blocking)
+    Notifications.newOrder(
+      data.order_number || "New Order",
+      customer_name,
+      String(finalAmount),
+      profileId
+    );
 
     return NextResponse.json({ 
       order: {

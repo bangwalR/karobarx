@@ -34,15 +34,6 @@ import {
   Mail,
   MoreVertical,
   Palette,
-  Sun,
-  Moon,
-  Monitor,
-  Sparkles,
-  Layout,
-  Type,
-  Circle,
-  Square,
-  RectangleHorizontal,
   Building2,
   Layers,
   ExternalLink,
@@ -57,8 +48,6 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { CloudinaryUpload } from "@/components/cloudinary-upload";
-import { ColorPicker } from "@/components/ui/color-picker";
-import { ThemeConfig, ThemePreset, defaultThemeConfig } from "@/contexts/ThemeContext";
 import { useBusinessConfig, BusinessConfig } from "@/contexts/BusinessContext";
 import { BUSINESS_TEMPLATES } from "@/lib/business-templates";
 import {
@@ -170,7 +159,6 @@ const defaultSettings: Settings = {
 const tabs = [
   { id: "business", label: "Business Profile", icon: Building2 },
   { id: "store", label: "Store Info", icon: Store },
-  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "team", label: "Team", icon: Users },
   { id: "profiles", label: "Profiles", icon: Layers },
   { id: "notifications", label: "Notifications", icon: Bell },
@@ -948,11 +936,17 @@ export default function SettingsPage() {
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [editingFieldLabel, setEditingFieldLabel] = useState("");
 
-  // Theme state
-  const [themeConfig, setThemeConfig] = useState<ThemeConfig>(defaultThemeConfig);
-  const [themePresets, setThemePresets] = useState<ThemePreset[]>([]);
-  const [loadingTheme, setLoadingTheme] = useState(false);
-  const [savingTheme, setSavingTheme] = useState(false);
+  // Instagram connection state
+  const [igStatus, setIgStatus] = useState<{
+    connected: boolean; expired?: boolean; username?: string; expiresAt?: string;
+  } | null>(null);
+  const [igLoading, setIgLoading] = useState(false);
+
+  // Facebook Messenger connection state
+  const [fbStatus, setFbStatus] = useState<{
+    connected: boolean; pageName?: string; pageId?: string; expiresAt?: string;
+  } | null>(null);
+  const [fbLoading, setFbLoading] = useState(false);
 
   // Sync bizState from context
   useEffect(() => {
@@ -962,7 +956,6 @@ export default function SettingsPage() {
   // Load settings on mount
   useEffect(() => {
     fetchSettings();
-    fetchThemePresets();
   }, []);
 
   // Load custom fields when entity changes
@@ -973,6 +966,43 @@ export default function SettingsPage() {
     }
   }, [activeTab, selectedEntity]);
 
+  // Load Instagram + Facebook status when integrations tab is active
+  useEffect(() => {
+    if (activeTab !== "integrations") return;
+
+    // Instagram
+    setIgLoading(true);
+    fetch("/api/social/instagram/status")
+      .then((r) => r.json())
+      .then((d) => setIgStatus(d))
+      .catch(() => setIgStatus({ connected: false }))
+      .finally(() => setIgLoading(false));
+
+    // Facebook
+    setFbLoading(true);
+    fetch("/api/social/facebook/status")
+      .then((r) => r.json())
+      .then((d) => setFbStatus(d))
+      .catch(() => setFbStatus({ connected: false }))
+      .finally(() => setFbLoading(false));
+
+    // Handle OAuth redirect result params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("ig_success")) {
+      toast.success(`Instagram connected as @${params.get("ig_user") || "account"}`);
+      window.history.replaceState({}, "", "/admin/settings?tab=integrations");
+    } else if (params.get("ig_error")) {
+      toast.error(`Instagram error: ${params.get("ig_error")}`);
+      window.history.replaceState({}, "", "/admin/settings?tab=integrations");
+    } else if (params.get("fb_success")) {
+      toast.success(`Facebook connected — Page: ${params.get("fb_page") || "page"}`);
+      window.history.replaceState({}, "", "/admin/settings?tab=integrations");
+    } else if (params.get("fb_error")) {
+      toast.error(`Facebook error: ${params.get("fb_error")}`);
+      window.history.replaceState({}, "", "/admin/settings?tab=integrations");
+    }
+  }, [activeTab]);
+
   const fetchSettings = async () => {
     try {
       setLoading(true);
@@ -981,125 +1011,12 @@ export default function SettingsPage() {
       
       if (result.success && result.settings) {
         setSettings({ ...defaultSettings, ...result.settings });
-        // Load theme config from settings
-        if (result.settings.theme_config) {
-          setThemeConfig({
-            ...defaultThemeConfig,
-            ...result.settings.theme_config,
-            admin: { ...defaultThemeConfig.admin, ...result.settings.theme_config?.admin },
-            website: { ...defaultThemeConfig.website, ...result.settings.theme_config?.website },
-          });
-        }
       }
     } catch (error) {
       console.error("Error fetching settings:", error);
     } finally {
       setLoading(false);
     }
-  };
-
-  const fetchThemePresets = async () => {
-    try {
-      setLoadingTheme(true);
-      const response = await fetch("/api/theme/presets");
-      if (response.ok) {
-        const presets = await response.json();
-        setThemePresets(presets);
-      }
-    } catch (error) {
-      console.error("Error fetching theme presets:", error);
-    } finally {
-      setLoadingTheme(false);
-    }
-  };
-
-  const applyThemePreset = (preset: ThemePreset) => {
-    setThemeConfig({
-      ...preset.theme_config,
-      preset: preset.slug,
-    });
-  };
-
-  const updateAdminTheme = (key: keyof ThemeConfig["admin"], value: string) => {
-    setThemeConfig(prev => ({
-      ...prev,
-      admin: { ...prev.admin, [key]: value },
-      preset: undefined, // Clear preset when customizing
-    }));
-  };
-
-  const updateWebsiteTheme = (key: keyof ThemeConfig["website"], value: string | boolean) => {
-    setThemeConfig(prev => ({
-      ...prev,
-      website: { ...prev.website, [key]: value },
-      preset: undefined, // Clear preset when customizing
-    }));
-  };
-
-  const saveTheme = async () => {
-    try {
-      setSavingTheme(true);
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme_config: themeConfig }),
-      });
-      
-      if (response.ok) {
-        toast.success("Theme saved successfully!");
-        // Apply theme to document
-        applyThemeToDocument(themeConfig);
-      } else {
-        throw new Error("Failed to save theme");
-      }
-    } catch (error) {
-      console.error("Error saving theme:", error);
-      toast.error("Failed to save theme");
-    } finally {
-      setSavingTheme(false);
-    }
-  };
-
-  const applyThemeToDocument = (theme: ThemeConfig) => {
-    const styleId = "theme-variables";
-    let styleEl = document.getElementById(styleId) as HTMLStyleElement;
-    
-    if (!styleEl) {
-      styleEl = document.createElement("style");
-      styleEl.id = styleId;
-      document.head.appendChild(styleEl);
-    }
-    
-    const hexToRgb = (hex: string) => {
-      const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-      return result
-        ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-        : "249, 115, 22";
-    };
-    
-    const borderRadiusMap: Record<string, string> = {
-      none: "0",
-      sm: "0.375rem",
-      md: "0.5rem",
-      lg: "0.75rem",
-      xl: "1rem",
-    };
-    
-    const isDark = theme.mode === "dark";
-    
-    styleEl.textContent = `
-      :root {
-        --primary: ${theme.website.primaryColor};
-        --primary-rgb: ${hexToRgb(theme.website.primaryColor)};
-        --secondary-color: ${theme.website.secondaryColor};
-        --background: ${isDark ? theme.website.backgroundColor : "#ffffff"};
-        --admin-primary: ${theme.admin.primaryColor};
-        --admin-accent: ${theme.admin.accentColor};
-        --radius: ${borderRadiusMap[theme.website.borderRadius]};
-        --neon-primary: ${theme.website.primaryColor};
-        --neon-secondary: ${theme.website.secondaryColor};
-      }
-    `;
   };
 
   const fetchCustomFields = async () => {
@@ -1282,6 +1199,8 @@ export default function SettingsPage() {
       
       if (result.success) {
         toast.success("Settings saved successfully!");
+        // Refresh the BusinessContext so the sidebar logo/name updates immediately
+        await refreshConfig();
       } else {
         toast.error(result.error || "Failed to save settings");
       }
@@ -1502,7 +1421,8 @@ export default function SettingsPage() {
                     }));
                   }}
                   className={`text-left p-4 rounded-xl border transition-all ${
-                    (bizState.business_type || bizConfig.business_type) === t.id
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ((bizState as any).business_type || (bizConfig as any).business_type) === t.id
                       ? "border-orange-500 bg-orange-500/10"
                       : "border-gray-800 bg-white/3 hover:border-gray-600"
                   }`}
@@ -1899,380 +1819,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Appearance Tab */}
-      {activeTab === "appearance" && (
-        <div className="space-y-6">
-          {/* Theme Presets */}
-          <div className="glass-card rounded-2xl p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Palette className="w-5 h-5 text-orange-500" />
-                Theme Presets
-              </h2>
-              <Button
-                onClick={saveTheme}
-                disabled={savingTheme}
-                className="btn-futuristic rounded-xl"
-              >
-                {savingTheme ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    Save Theme
-                  </>
-                )}
-              </Button>
-            </div>
-            
-            <p className="text-sm text-gray-500">Choose a preset theme or customize your own colors below</p>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {themePresets.map((preset) => (
-                <button
-                  key={preset.slug}
-                  onClick={() => applyThemePreset(preset)}
-                  className={`relative p-4 rounded-xl border transition-all hover:scale-105 ${
-                    themeConfig.preset === preset.slug
-                      ? "border-orange-500 ring-2 ring-orange-500/50"
-                      : "border-white/10 hover:border-white/20"
-                  }`}
-                >
-                  {/* Preview Colors */}
-                  <div className="flex gap-1 mb-3">
-                    {preset.preview_colors.map((color, i) => (
-                      <div
-                        key={i}
-                        className="w-6 h-6 rounded-full border border-white/10"
-                        style={{ backgroundColor: color }}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-sm font-medium text-left">{preset.name}</p>
-                  <p className="text-xs text-gray-500 text-left mt-1 line-clamp-2">{preset.description}</p>
-                  {themeConfig.preset === preset.slug && (
-                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
-                      <Check className="w-3 h-3 text-white" />
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Mode Selection */}
-          <div className="glass-card rounded-2xl p-6 space-y-6">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Monitor className="w-5 h-5 text-orange-500" />
-              Display Mode
-            </h2>
-            
-            <div className="grid grid-cols-3 gap-4">
-              {[
-                { id: "dark", label: "Dark", icon: Moon, description: "Dark theme for low-light environments" },
-                { id: "light", label: "Light", icon: Sun, description: "Light theme for bright environments" },
-                { id: "system", label: "System", icon: Monitor, description: "Match your device settings" },
-              ].map((mode) => (
-                <button
-                  key={mode.id}
-                  onClick={() => setThemeConfig(prev => ({ ...prev, mode: mode.id as "dark" | "light" | "system" }))}
-                  className={`p-4 rounded-xl border transition-all ${
-                    themeConfig.mode === mode.id
-                      ? "border-orange-500 bg-orange-500/10"
-                      : "border-white/10 hover:border-white/20"
-                  }`}
-                >
-                  <mode.icon className={`w-6 h-6 mx-auto mb-2 ${themeConfig.mode === mode.id ? "text-orange-500" : "text-gray-400"}`} />
-                  <p className="font-medium">{mode.label}</p>
-                  <p className="text-xs text-gray-500 mt-1">{mode.description}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Admin Panel Colors */}
-            <div className="glass-card rounded-2xl p-6 space-y-6">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Layout className="w-5 h-5 text-orange-500" />
-                Admin Panel Colors
-              </h2>
-              
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Primary Color</Label>
-                  <ColorPicker
-                    color={themeConfig.admin.primaryColor}
-                    onChange={(color) => updateAdminTheme("primaryColor", color)}
-                  />
-                  <p className="text-xs text-gray-500">Main buttons, active states, and highlights</p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Accent Color</Label>
-                  <ColorPicker
-                    color={themeConfig.admin.accentColor}
-                    onChange={(color) => updateAdminTheme("accentColor", color)}
-                  />
-                  <p className="text-xs text-gray-500">Secondary highlights and gradients</p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Sidebar Style</Label>
-                  <div className="flex gap-3">
-                    {[
-                      { id: "glass", label: "Glass", icon: Sparkles },
-                      { id: "solid", label: "Solid", icon: Square },
-                    ].map((style) => (
-                      <button
-                        key={style.id}
-                        onClick={() => updateAdminTheme("sidebarStyle", style.id)}
-                        className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
-                          themeConfig.admin.sidebarStyle === style.id
-                            ? "border-orange-500 bg-orange-500/10"
-                            : "border-white/10 hover:border-white/20"
-                        }`}
-                      >
-                        <style.icon className="w-4 h-4" />
-                        {style.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Admin Preview */}
-              <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
-                <p className="text-xs text-gray-500 mb-3">Preview</p>
-                <div className="flex gap-2">
-                  <div
-                    className="h-8 flex-1 rounded-lg flex items-center justify-center text-xs font-medium"
-                    style={{ backgroundColor: themeConfig.admin.primaryColor, color: "#fff" }}
-                  >
-                    Primary Button
-                  </div>
-                  <div
-                    className="h-8 flex-1 rounded-lg flex items-center justify-center text-xs font-medium border"
-                    style={{ borderColor: themeConfig.admin.accentColor, color: themeConfig.admin.accentColor }}
-                  >
-                    Accent Button
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Website Colors */}
-            <div className="glass-card rounded-2xl p-6 space-y-6">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Globe className="w-5 h-5 text-orange-500" />
-                Website Colors
-              </h2>
-              
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Primary Color</Label>
-                  <ColorPicker
-                    color={themeConfig.website.primaryColor}
-                    onChange={(color) => updateWebsiteTheme("primaryColor", color)}
-                  />
-                  <p className="text-xs text-gray-500">Main brand color for buttons and accents</p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Secondary Color</Label>
-                  <ColorPicker
-                    color={themeConfig.website.secondaryColor}
-                    onChange={(color) => updateWebsiteTheme("secondaryColor", color)}
-                  />
-                  <p className="text-xs text-gray-500">Gradients and secondary highlights</p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label className="text-gray-400 text-sm">Background Color</Label>
-                  <ColorPicker
-                    color={themeConfig.website.backgroundColor}
-                    onChange={(color) => updateWebsiteTheme("backgroundColor", color)}
-                  />
-                  <p className="text-xs text-gray-500">Main background color (dark mode)</p>
-                </div>
-              </div>
-              
-              {/* Website Preview */}
-              <div 
-                className="mt-6 p-4 rounded-xl border border-white/10 transition-colors"
-                style={{ backgroundColor: themeConfig.website.backgroundColor }}
-              >
-                <p className="text-xs text-gray-500 mb-3">Preview</p>
-                <div
-                  className="h-20 rounded-lg flex items-center justify-center"
-                  style={{
-                    background: `linear-gradient(135deg, ${themeConfig.website.primaryColor}, ${themeConfig.website.secondaryColor})`,
-                  }}
-                >
-                  <span className="text-white font-medium text-sm">Hero Gradient</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Website Design Options */}
-          <div className="glass-card rounded-2xl p-6 space-y-6">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-orange-500" />
-              Website Design Options
-            </h2>
-            
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Hero Style */}
-              <div className="space-y-3">
-                <Label className="text-gray-400 text-sm">Hero Style</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: "gradient", label: "Gradient", icon: RectangleHorizontal },
-                    { id: "solid", label: "Solid", icon: Square },
-                    { id: "image", label: "Image", icon: Layout },
-                  ].map((style) => (
-                    <button
-                      key={style.id}
-                      onClick={() => updateWebsiteTheme("heroStyle", style.id)}
-                      className={`p-3 rounded-xl border text-center transition-all ${
-                        themeConfig.website.heroStyle === style.id
-                          ? "border-orange-500 bg-orange-500/10"
-                          : "border-white/10 hover:border-white/20"
-                      }`}
-                    >
-                      <style.icon className={`w-4 h-4 mx-auto mb-1 ${themeConfig.website.heroStyle === style.id ? "text-orange-500" : "text-gray-400"}`} />
-                      <p className="text-xs">{style.label}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Card Style */}
-              <div className="space-y-3">
-                <Label className="text-gray-400 text-sm">Card Style</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: "glass", label: "Glass" },
-                    { id: "solid", label: "Solid" },
-                    { id: "bordered", label: "Border" },
-                  ].map((style) => (
-                    <button
-                      key={style.id}
-                      onClick={() => updateWebsiteTheme("cardStyle", style.id)}
-                      className={`p-3 rounded-xl border text-center transition-all ${
-                        themeConfig.website.cardStyle === style.id
-                          ? "border-orange-500 bg-orange-500/10"
-                          : "border-white/10 hover:border-white/20"
-                      }`}
-                    >
-                      <p className="text-xs">{style.label}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Border Radius */}
-              <div className="space-y-3">
-                <Label className="text-gray-400 text-sm">Border Radius</Label>
-                <div className="grid grid-cols-5 gap-2">
-                  {["none", "sm", "md", "lg", "xl"].map((radius) => (
-                    <button
-                      key={radius}
-                      onClick={() => updateWebsiteTheme("borderRadius", radius)}
-                      className={`p-3 rounded-xl border text-center transition-all ${
-                        themeConfig.website.borderRadius === radius
-                          ? "border-orange-500 bg-orange-500/10"
-                          : "border-white/10 hover:border-white/20"
-                      }`}
-                    >
-                      <Circle 
-                        className={`w-4 h-4 mx-auto ${themeConfig.website.borderRadius === radius ? "text-orange-500" : "text-gray-400"}`}
-                        style={{ 
-                          borderRadius: radius === "none" ? "0" : radius === "sm" ? "2px" : radius === "md" ? "4px" : radius === "lg" ? "6px" : "8px" 
-                        }}
-                      />
-                      <p className="text-xs mt-1 uppercase">{radius}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            {/* Effect Toggles */}
-            <div className="pt-4 border-t border-white/10">
-              <p className="text-sm font-medium mb-4">Visual Effects</p>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                  <div>
-                    <p className="text-sm font-medium">Neon Effects</p>
-                    <p className="text-xs text-gray-500">Glowing text and borders</p>
-                  </div>
-                  <Switch
-                    checked={themeConfig.website.enableNeonEffects}
-                    onCheckedChange={(checked) => updateWebsiteTheme("enableNeonEffects", checked)}
-                  />
-                </div>
-                
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                  <div>
-                    <p className="text-sm font-medium">Animated Orbs</p>
-                    <p className="text-xs text-gray-500">Floating background blurs</p>
-                  </div>
-                  <Switch
-                    checked={themeConfig.website.enableAnimatedOrbs}
-                    onCheckedChange={(checked) => updateWebsiteTheme("enableAnimatedOrbs", checked)}
-                  />
-                </div>
-                
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                  <div>
-                    <p className="text-sm font-medium">Glassmorphism</p>
-                    <p className="text-xs text-gray-500">Frosted glass effect</p>
-                  </div>
-                  <Switch
-                    checked={themeConfig.website.enableGlassmorphism}
-                    onCheckedChange={(checked) => updateWebsiteTheme("enableGlassmorphism", checked)}
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Font Family */}
-            <div className="pt-4 border-t border-white/10">
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <Label className="text-gray-400 text-sm">Font Family</Label>
-                  <div className="grid grid-cols-3 gap-2 mt-2">
-                    {[
-                      { id: "geist", label: "Geist", sample: "Aa" },
-                      { id: "inter", label: "Inter", sample: "Aa" },
-                      { id: "poppins", label: "Poppins", sample: "Aa" },
-                    ].map((font) => (
-                      <button
-                        key={font.id}
-                        onClick={() => updateWebsiteTheme("fontFamily", font.id)}
-                        className={`p-4 rounded-xl border text-center transition-all ${
-                          themeConfig.website.fontFamily === font.id
-                            ? "border-orange-500 bg-orange-500/10"
-                            : "border-white/10 hover:border-white/20"
-                        }`}
-                      >
-                        <Type className={`w-5 h-5 mx-auto mb-2 ${themeConfig.website.fontFamily === font.id ? "text-orange-500" : "text-gray-400"}`} />
-                        <p className="text-sm font-medium">{font.label}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Team Tab */}
       {activeTab === "team" && (
         <TeamManagement />
@@ -2542,110 +2088,207 @@ export default function SettingsPage() {
       {activeTab === "integrations" && (
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Instagram Integration */}
-          <div className="glass-card rounded-2xl p-6 space-y-6">
+          <div className="glass-card rounded-2xl p-6 space-y-5">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Instagram className="w-5 h-5 text-pink-500" />
-              Instagram
+              Instagram DMs
             </h2>
-            
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/20">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
-                    <Instagram className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Instagram Business</p>
-                    <p className="text-sm text-gray-500">Connect to capture leads from DMs & comments</p>
-                  </div>
+
+            {/* Connection status row */}
+            <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/20">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center shrink-0">
+                  <Instagram className="w-6 h-6 text-white" />
                 </div>
-                <Button
-                  variant="outline"
-                  className="border-pink-500/50 text-pink-400 hover:bg-pink-500/10"
-                  onClick={() => {
-                    // In production, this would redirect to Instagram OAuth
-                    toast.info("Instagram OAuth flow - Configure META_APP_ID in environment");
-                  }}
-                >
-                  Connect
-                </Button>
+                <div>
+                  {igLoading ? (
+                    <p className="text-sm text-gray-400">Checking…</p>
+                  ) : igStatus?.connected ? (
+                    <>
+                      <p className="font-medium text-green-400 flex items-center gap-1">
+                        <Check className="w-4 h-4" /> Connected
+                      </p>
+                      <p className="text-sm text-gray-400">@{igStatus.username}</p>
+                      {igStatus.expiresAt && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Token expires {new Date(igStatus.expiresAt).toLocaleDateString("en-IN")}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium">Instagram Business</p>
+                      <p className="text-sm text-gray-500">Connect to read &amp; reply to DMs</p>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <p className="text-sm text-gray-400">With Instagram connected, you can:</p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Capture leads from DMs automatically
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Track comments and mentions as leads
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Send bulk messages to followers
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Get leads from Instagram Lead Ads
-                  </li>
-                </ul>
-              </div>
+              {igStatus?.connected ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10 shrink-0"
+                  onClick={async () => {
+                    await fetch("/api/social/instagram/status", { method: "DELETE" });
+                    setIgStatus({ connected: false });
+                    toast.success("Instagram disconnected");
+                  }}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="border-pink-500/50 text-pink-400 hover:bg-pink-500/10 shrink-0"
+                  disabled={igLoading}
+                  onClick={() => { window.location.href = "/api/social/instagram/connect"; }}
+                >
+                  Connect Instagram
+                </Button>
+              )}
             </div>
+
+            {/* Setup instructions when not connected */}
+            {!igStatus?.connected && !igLoading && (
+              <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-gray-400 space-y-2">
+                <p className="font-medium text-amber-400">Setup required before connecting</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Go to <span className="text-violet-400">developers.facebook.com</span> → Create App → Business type</li>
+                  <li>Add the Instagram product and set Redirect URI to:<br />
+                    <code className="bg-white/10 px-1 rounded break-all">
+                      {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/social/instagram/callback
+                    </code>
+                  </li>
+                  <li>Add to <code className="bg-white/10 px-1 rounded">.env.local</code>:
+                    <code className="block bg-white/10 px-2 py-1 rounded mt-1">META_APP_ID=...<br />META_APP_SECRET=...</code>
+                  </li>
+                  <li>Restart the dev server, then click Connect Instagram</li>
+                </ol>
+              </div>
+            )}
+
+            {/* Features list when connected */}
+            {igStatus?.connected && (
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  View all DMs in the Conversations page
+                </li>
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  Reply to messages directly from dashboard
+                </li>
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  Real-time new message webhook
+                </li>
+              </ul>
+            )}
           </div>
 
-          {/* Facebook Integration */}
-          <div className="glass-card rounded-2xl p-6 space-y-6">
+          {/* Facebook Messenger Integration */}
+          <div className="glass-card rounded-2xl p-6 space-y-5">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Facebook className="w-5 h-5 text-blue-500" />
-              Facebook
+              Facebook Messenger
             </h2>
-            
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-blue-600/10 border border-blue-500/20">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-                    <Facebook className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium">Facebook Page</p>
-                    <p className="text-sm text-gray-500">Connect to capture leads from Messenger & ads</p>
-                  </div>
+
+            {/* Connection status row */}
+            <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-blue-600/10 border border-blue-500/20">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shrink-0">
+                  <Facebook className="w-6 h-6 text-white" />
                 </div>
-                <Button
-                  variant="outline"
-                  className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
-                  onClick={() => {
-                    toast.info("Facebook OAuth flow - Configure META_APP_ID in environment");
-                  }}
-                >
-                  Connect
-                </Button>
+                <div>
+                  {fbLoading ? (
+                    <p className="text-sm text-gray-400">Checking…</p>
+                  ) : fbStatus?.connected ? (
+                    <>
+                      <p className="font-medium text-green-400 flex items-center gap-1">
+                        <Check className="w-4 h-4" /> Connected
+                      </p>
+                      <p className="text-sm text-gray-400">{fbStatus.pageName}</p>
+                      {fbStatus.expiresAt && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Token expires {new Date(fbStatus.expiresAt).toLocaleDateString("en-IN")}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium">Facebook Page</p>
+                      <p className="text-sm text-gray-500">Connect to read &amp; reply to Messenger DMs</p>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <p className="text-sm text-gray-400">With Facebook connected, you can:</p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Receive Messenger conversations
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Capture leads from Facebook Lead Ads
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Send promotional messages
-                  </li>
-                  <li className="flex items-center gap-2 text-gray-300">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Track page interactions
-                  </li>
-                </ul>
-              </div>
+              {fbStatus?.connected ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10 shrink-0"
+                  onClick={async () => {
+                    await fetch("/api/social/facebook/status", { method: "DELETE" });
+                    setFbStatus({ connected: false });
+                    toast.success("Facebook disconnected");
+                  }}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10 shrink-0"
+                  disabled={fbLoading}
+                  onClick={() => { window.location.href = "/api/social/facebook/connect"; }}
+                >
+                  Connect Facebook
+                </Button>
+              )}
             </div>
+
+            {/* Setup instructions when not connected */}
+            {!fbStatus?.connected && !fbLoading && (
+              <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-gray-400 space-y-2">
+                <p className="font-medium text-amber-400">Setup required before connecting</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Go to <span className="text-violet-400">developers.facebook.com</span> → your App → add <strong>Messenger</strong> product</li>
+                  <li>Under Messenger → Settings → add your Facebook Page</li>
+                  <li>Set Redirect URI to:<br />
+                    <code className="bg-white/10 px-1 rounded break-all">
+                      {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/social/facebook/callback
+                    </code>
+                  </li>
+                  <li>Set Webhook URL to:<br />
+                    <code className="bg-white/10 px-1 rounded break-all">
+                      {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/webhook/meta
+                    </code>
+                    &nbsp;with verify token <code className="bg-white/10 px-1 rounded">mobilehub_verify_2026</code>
+                  </li>
+                  <li>The same <code className="bg-white/10 px-1 rounded">META_APP_ID</code> / <code className="bg-white/10 px-1 rounded">META_APP_SECRET</code> env vars are reused — no new secrets needed</li>
+                </ol>
+              </div>
+            )}
+
+            {/* Features when connected */}
+            {fbStatus?.connected && (
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  View all Messenger conversations in Conversations page
+                </li>
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  Reply to Messenger messages directly from dashboard
+                </li>
+                <li className="flex items-center gap-2 text-gray-300">
+                  <Check className="w-4 h-4 text-green-500" />
+                  Capture leads from Facebook Lead Ads via webhook
+                </li>
+              </ul>
+            )}
           </div>
 
           {/* Webhook Configuration */}
@@ -2665,7 +2308,7 @@ export default function SettingsPage() {
                   <Label className="text-gray-400 text-xs">Meta Webhook URL</Label>
                   <div className="flex items-center gap-2 mt-1">
                     <Input
-                      value={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhook/meta`}
+                      value={`${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhook/instagram`}
                       readOnly
                       className="bg-gray-900 border-gray-700 font-mono text-sm"
                     />
@@ -2674,7 +2317,7 @@ export default function SettingsPage() {
                       size="sm"
                       className="border-gray-700"
                       onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/api/webhook/meta`);
+                        navigator.clipboard.writeText(`${window.location.origin}/api/webhook/instagram`);
                         toast.success("Copied to clipboard");
                       }}
                     >

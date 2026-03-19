@@ -20,7 +20,10 @@ import {
   RefreshCw,
   Upload,
   FileSpreadsheet,
-  Settings2
+  Settings2,
+  Send,
+  CheckCircle,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,6 +112,11 @@ export default function CustomersPage() {
   });
   const [editCustomerCustomData, setEditCustomerCustomData] = useState<Record<string, unknown>>({});
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTarget, setEmailTarget] = useState<Customer | null>(null); // null = bulk
+  const [emailForm, setEmailForm] = useState({ subject: "", body: "" });
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ sent: number; failed: number } | null>(null);
   const [stats, setStats] = useState<Stats>({
     total: 0,
     vip: 0,
@@ -317,6 +325,53 @@ export default function CustomersPage() {
     }
   };
 
+  const handleSendEmail = async () => {
+    if (!emailForm.subject || !emailForm.body) {
+      alert("Subject and body are required!");
+      return;
+    }
+
+    const recipients = emailTarget
+      ? [emailTarget.email].filter(Boolean)
+      : filteredCustomers.filter((c) => c.email).map((c) => c.email as string);
+
+    if (recipients.length === 0) {
+      alert("No email addresses found for selected customers.");
+      return;
+    }
+
+    setEmailSending(true);
+    setEmailResult(null);
+    try {
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: recipients,
+          subject: emailForm.subject,
+          body: emailForm.body,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+      } else {
+        setEmailResult({ sent: data.sent, failed: data.failed });
+        setTimeout(() => {
+          setShowEmailModal(false);
+          setEmailForm({ subject: "", body: "" });
+          setEmailResult(null);
+          setEmailTarget(null);
+        }, 3000);
+      }
+    } catch (error) {
+      console.error("Email error:", error);
+      alert("Failed to send email");
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const filteredCustomers = customers.filter(
     (c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -368,6 +423,14 @@ export default function CustomersPage() {
           >
             <Upload className="w-4 h-4 mr-2" />
             Import
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => { setEmailTarget(null); setShowEmailModal(true); }}
+            className="border-gray-800 bg-white/5 hover:bg-white/10 rounded-xl"
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            Bulk Email
           </Button>
           <Button 
             onClick={() => setShowAddModal(true)}
@@ -525,6 +588,15 @@ export default function CustomersPage() {
                               WhatsApp
                             </a>
                           </DropdownMenuItem>
+                          {customer.email && (
+                            <DropdownMenuItem
+                              onClick={() => { setEmailTarget(customer); setShowEmailModal(true); }}
+                              className="cursor-pointer"
+                            >
+                              <Mail className="w-4 h-4 mr-2 text-blue-400" />
+                              Send Email
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem 
                             onClick={() => openDeleteDialog(customer)}
                             className="cursor-pointer text-red-500 focus:text-red-500"
@@ -924,6 +996,80 @@ export default function CustomersPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Compose Modal */}
+      <Dialog open={showEmailModal} onOpenChange={(o) => { setShowEmailModal(o); if (!o) { setEmailResult(null); setEmailTarget(null); } }}>
+        <DialogContent className="bg-gray-900 border-gray-800 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-blue-400" />
+              {emailTarget ? `Email ${emailTarget.name}` : `Bulk Email (${filteredCustomers.filter(c => c.email).length} recipients)`}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              {emailTarget
+                ? `Sending to: ${emailTarget.email}`
+                : `Sending to all customers with email addresses in the current view`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {emailResult ? (
+            <div className="py-8 text-center space-y-3">
+              <CheckCircle className="w-14 h-14 mx-auto text-green-500" />
+              <p className="text-xl font-bold text-green-400">
+                {emailResult.sent} email{emailResult.sent !== 1 ? "s" : ""} sent!
+              </p>
+              {emailResult.failed > 0 && (
+                <p className="text-sm text-red-400">{emailResult.failed} failed</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4 mt-2">
+              <div>
+                <Label>Subject *</Label>
+                <Input
+                  value={emailForm.subject}
+                  onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })}
+                  placeholder="e.g., Special offer just for you!"
+                  className="mt-1 bg-gray-800 border-gray-700 rounded-xl"
+                />
+              </div>
+              <div>
+                <Label>Message *</Label>
+                <textarea
+                  value={emailForm.body}
+                  onChange={(e) => setEmailForm({ ...emailForm, body: e.target.value })}
+                  placeholder="Write your message here..."
+                  rows={7}
+                  className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Plain text or basic HTML supported</p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEmailModal(false)}
+                  className="flex-1 border-gray-700 rounded-xl"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSendEmail}
+                  disabled={emailSending}
+                  className="flex-1 bg-gradient-to-r from-blue-500 to-blue-700 border-0 rounded-xl"
+                >
+                  {emailSending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending...</>
+                  ) : (
+                    <><Send className="w-4 h-4 mr-2" />Send Email</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

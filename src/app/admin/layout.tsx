@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
@@ -9,9 +10,7 @@ import {
   ShoppingCart, 
   MessageSquare, 
   Settings,
-  Phone,
-  LogOut,
-  Bell,
+    LogOut,
   Search,
   Menu,
   X,
@@ -23,6 +22,9 @@ import {
   ChevronDown,
   Plus,
   RefreshCw,
+  Calendar,
+  Bot,
+  BarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, useMemo } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useBusinessConfig } from "@/contexts/BusinessContext";
+import NotificationButton from "@/components/admin/notification-button";
 
 interface Profile {
   id: string;
@@ -51,10 +54,11 @@ export default function AdminLayout({
   const [profileDropOpen, setProfileDropOpen] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const { config: bizConfig, refreshConfig } = useBusinessConfig();
+  const isSetupComplete = (bizConfig as { setup_completed?: boolean }).setup_completed ?? false;
 
   // Dynamic nav built from bizConfig
   const navigation = useMemo(() => {
-    const base = [
+    const base: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string }[] = [
       { name: "Dashboard",                          href: "/admin",                 icon: LayoutDashboard },
       { name: `${bizConfig.product_name_plural}`,   href: "/admin/inventory",       icon: Package },
       { name: "Customers",                          href: "/admin/customers",       icon: Users },
@@ -62,8 +66,11 @@ export default function AdminLayout({
     if (bizConfig.enable_leads_module)    base.push({ name: "Leads",     href: "/admin/leads",         icon: UserPlus });
     if (bizConfig.enable_marketing_module) base.push({ name: "Marketing", href: "/admin/marketing",     icon: Zap });
     base.push({ name: "Orders",    href: "/admin/orders",       icon: ShoppingCart });
-    if (bizConfig.enable_whatsapp_ai) base.push({ name: "WhatsApp",  href: "/admin/conversations", icon: Phone });
+    if (bizConfig.enable_whatsapp_ai) base.push({ name: "Conversations", href: "/admin/conversations", icon: MessageSquare });
     base.push({ name: "Inquiries", href: "/admin/inquiries",    icon: MessageSquare });
+    base.push({ name: "Calendar",  href: "/admin/calendar",     icon: Calendar });
+    base.push({ name: "Telegram",  href: "/admin/telegram",     icon: Bot });
+    base.push({ name: "Analytics", href: "/admin/analytics",    icon: BarChart2 });
     base.push({ name: "Settings",  href: "/admin/settings",     icon: Settings });
     return base;
   }, [bizConfig]);
@@ -88,6 +95,22 @@ export default function AdminLayout({
       router.push("/admin/login");
     }
   }, [status, pathname, router]);
+
+  // Redirect to setup wizard if the active profile hasn't been configured yet.
+  // Only fires once bizConfig has loaded (bizConfig.id exists) so we don't
+  // get a flash redirect while the context is still initialising.
+  useEffect(() => {
+    if (
+      status !== "authenticated" ||
+      pathname.startsWith("/admin/setup") ||
+      pathname === "/admin/login" ||
+      !bizConfig.id        // still loading — wait for a real profile id
+    ) return;
+
+    if (!isSetupComplete) {
+      router.push("/admin/setup?from_signup=1");
+    }
+  }, [status, isSetupComplete, bizConfig.id, pathname, router]);
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: "/admin/login" });
@@ -119,10 +142,10 @@ export default function AdminLayout({
   // Show loading state while session loads
   if (status === "loading") {
     return (
-      <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-orange-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Loading…</p>
+          <Loader2 className="w-8 h-8 text-violet-600 animate-spin mx-auto mb-4" />
+          <p className="text-slate-400">Loading…</p>
         </div>
       </div>
     );
@@ -132,47 +155,44 @@ export default function AdminLayout({
   if (status === "unauthenticated") return null;
 
   return (
-    <div className="min-h-screen bg-[#030712] text-white">
-      {/* Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-grid-pattern opacity-20" />
-      </div>
+    <div className="h-screen overflow-hidden bg-slate-50 text-slate-900 flex flex-col">
 
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-900/40 z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 bottom-0 w-72 glass border-r border-gray-800 z-50 transform transition-transform duration-300 lg:translate-x-0 ${
+      <aside className={`fixed top-0 left-0 bottom-0 w-64 bg-white border-r border-slate-200 z-50 transform transition-transform duration-300 lg:translate-x-0 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
         <div className="flex flex-col h-full">
           {/* Logo + Profile Switcher */}
-          <div className="p-4 border-b border-gray-800">
+          <div className="p-4 border-b border-slate-100">
             <div className="flex items-center justify-between">
               <Link href="/admin" className="flex items-center gap-3 min-w-0">
                 <div className="relative shrink-0">
-                  <div className="absolute inset-0 bg-orange-500 blur-lg opacity-50" />
                   {bizConfig.id && (bizConfig as { logo_url?: string }).logo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={(bizConfig as { logo_url?: string }).logo_url}
                       alt="logo"
-                      className="relative w-10 h-10 rounded-xl object-cover"
+                      className="w-9 h-9 rounded-lg object-cover"
                     />
                   ) : (
-                    <div className="relative bg-gradient-to-br from-orange-500 to-red-600 p-2.5 rounded-xl">
-                      <Store className="w-6 h-6 text-white" />
+                    <div className="bg-violet-600 p-2 rounded-lg">
+                      <Store className="w-5 h-5 text-white" />
                     </div>
                   )}
                 </div>
                 <div className="min-w-0">
-                  <span className="text-lg font-bold truncate block">{(bizConfig as { store_name?: string }).store_name || "My Store"}</span>
-                  <span className="block text-[10px] text-orange-500 uppercase tracking-wider">Admin Panel</span>
+                  <span className="text-sm font-semibold text-slate-900 truncate block">
+                    {(bizConfig as { store_name?: string }).store_name || bizConfig.display_name || "My Store"}
+                  </span>
+                  <span className="block text-[10px] text-violet-600 uppercase tracking-wider font-medium">CRM Dashboard</span>
                 </div>
               </Link>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 hover:bg-white/10 rounded-lg">
@@ -185,37 +205,37 @@ export default function AdminLayout({
               <div className="mt-3 relative">
                 <button
                   onClick={() => setProfileDropOpen(o => !o)}
-                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/5 border border-gray-800 hover:border-orange-500/40 transition-all text-sm"
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 hover:border-violet-300 transition-all text-sm"
                 >
-                  <span className="truncate text-gray-300">
+                  <span className="truncate text-slate-600">
                     {profiles.find(p => p.id === activeProfileId)?.display_name ||
                      profiles.find(p => p.id === activeProfileId)?.product_name_plural ||
                      "Select Profile"}
                   </span>
-                  <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+                  <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
                 </button>
 
                 {profileDropOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+                  <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
                     {profiles.map(p => (
                       <button
                         key={p.id}
                         onClick={() => switchProfile(p.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${
                           p.id === activeProfileId
-                            ? "bg-orange-500/20 text-orange-400"
-                            : "hover:bg-white/5 text-gray-300"
+                            ? "bg-violet-50 text-violet-700"
+                            : "hover:bg-slate-50 text-slate-600"
                         }`}
                       >
                         <RefreshCw className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">{p.display_name || p.product_name_plural}</span>
                       </button>
                     ))}
-                    <div className="border-t border-gray-800">
+                    <div className="border-t border-slate-100">
                       <Link
                         href="/admin/setup?new=1"
                         onClick={() => setProfileDropOpen(false)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         New Profile
@@ -235,22 +255,22 @@ export default function AdminLayout({
               
               return (
                 <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)}>
-                  <div className={`group flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 ${
+                  <div className={`group flex items-center justify-between px-3 py-2.5 rounded-lg transition-all duration-150 ${
                     isActive 
-                      ? 'bg-gradient-to-r from-orange-500/20 to-red-500/10 text-orange-500 border border-orange-500/20' 
-                      : 'hover:bg-white/5 text-gray-400 hover:text-white'
+                      ? 'bg-violet-50 text-violet-700' 
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   }`}>
                     <div className="flex items-center gap-3">
-                      <item.icon className={`w-5 h-5 ${isActive ? 'text-orange-500' : ''}`} />
+                      <item.icon className={`w-5 h-5 ${isActive ? 'text-violet-600' : ''}`} />
                       <span className="font-medium">{item.name}</span>
                     </div>
                     {item.badge && (
-                      <Badge className="bg-orange-500 text-white border-0 text-xs">
+                      <Badge className="bg-violet-600 text-white border-0 text-xs">
                         {item.badge}
                       </Badge>
                     )}
                     {isActive && (
-                      <ChevronRight className="w-4 h-4 text-orange-500" />
+                      <ChevronRight className="w-4 h-4 text-violet-500" />
                     )}
                   </div>
                 </Link>
@@ -259,33 +279,26 @@ export default function AdminLayout({
           </nav>
 
           {/* Bottom Section */}
-          <div className="p-4 border-t border-gray-800">
+          <div className="p-4 border-t border-slate-100">
             {/* User Info */}
             {adminUser && (
-              <div className="glass-card rounded-xl p-4 mb-4">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center text-white font-semibold">
+                  <div className="w-9 h-9 rounded-full bg-violet-600 flex items-center justify-center text-white font-semibold text-sm">
                     {(adminUser.full_name || adminUser.username).charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{adminUser.full_name || adminUser.username}</p>
-                    <p className="text-xs text-gray-500 capitalize">{adminUser.role?.replace("_", " ") || "Admin"}</p>
+                    <p className="font-medium text-sm text-slate-900 truncate">{adminUser.full_name || adminUser.username}</p>
+                    <p className="text-xs text-slate-400 capitalize">{adminUser.role?.replace("_", " ") || "Admin"}</p>
                   </div>
                 </div>
               </div>
             )}
             
-            <Link href="/">
-              <Button variant="ghost" className="w-full justify-start text-gray-400 hover:text-white hover:bg-white/5">
-                <LogOut className="w-4 h-4 mr-3" />
-                Back to Website
-              </Button>
-            </Link>
-            
             <Button 
               variant="ghost" 
               onClick={handleLogout}
-              className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-500/10 mt-2"
+              className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50"
             >
               <LogOut className="w-4 h-4 mr-3" />
               Logout
@@ -295,40 +308,37 @@ export default function AdminLayout({
       </aside>
 
       {/* Main Content */}
-      <div className="lg:pl-72">
+      <div className="lg:pl-64 flex flex-col flex-1 min-h-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 glass border-b border-gray-800">
+        <header className="sticky top-0 z-30 bg-white border-b border-slate-200">
           <div className="flex items-center justify-between px-4 lg:px-8 py-4">
             <div className="flex items-center gap-4">
               <button 
                 onClick={() => setSidebarOpen(true)} 
-                className="lg:hidden p-2 hover:bg-white/10 rounded-lg"
+                className="lg:hidden p-2 hover:bg-slate-100 rounded-lg"
               >
-                <Menu className="w-6 h-6" />
+                <Menu className="w-6 h-6 text-slate-600" />
               </button>
               
               <div className="hidden md:block relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input 
                   placeholder={`Search ${bizConfig.product_name_plural.toLowerCase()}, orders…`}
-                  className="w-80 pl-10 bg-white/5 border-gray-800 rounded-xl text-sm"
+                  className="w-80 pl-10 bg-slate-50 border-slate-200 rounded-lg text-sm"
                 />
               </div>
             </div>
 
             <div className="flex items-center gap-4">
-              <button className="relative p-2 hover:bg-white/10 rounded-xl transition-colors">
-                <Bell className="w-5 h-5 text-gray-400" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full" />
-              </button>
+              <NotificationButton />
               
-              <div className="flex items-center gap-3 pl-4 border-l border-gray-800">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-sm font-bold">
+              <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
+                <div className="w-9 h-9 rounded-full bg-violet-600 flex items-center justify-center text-sm font-bold text-white">
                   {(adminUser?.full_name || adminUser?.username || "A").charAt(0).toUpperCase()}
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-sm font-medium">{adminUser?.full_name || adminUser?.username || "Admin"}</p>
-                  <p className="text-xs text-gray-500 capitalize">{adminUser?.role?.replace("_", " ") || "Administrator"}</p>
+                  <p className="text-sm font-medium text-slate-900">{adminUser?.full_name || adminUser?.username || "Admin"}</p>
+                  <p className="text-xs text-slate-400 capitalize">{adminUser?.role?.replace("_", " ") || "Administrator"}</p>
                 </div>
               </div>
             </div>
@@ -336,8 +346,10 @@ export default function AdminLayout({
         </header>
 
         {/* Page Content */}
-        <main className="relative p-4 lg:p-8">
-          {children}
+        <main className={`flex-1 min-h-0 ${pathname === "/admin/conversations" ? "overflow-hidden flex flex-col" : "overflow-y-auto"}`} data-main-content>
+          <div className={pathname === "/admin/conversations" ? "flex flex-col flex-1 min-h-0" : "p-4 lg:p-6"}>
+            {children}
+          </div>
         </main>
       </div>
     </div>

@@ -1,626 +1,1041 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { 
-  MessageSquare, 
-  Search, 
-  Send, 
-  Phone, 
-  User, 
-  Clock, 
-  CheckCheck, 
-  Check,
-  ArrowLeft,
-  MoreVertical,
-  Bot,
-  UserCircle,
-  ShoppingCart,
-  Tag,
-  Mail,
-  Edit2,
-  X,
-  Loader2,
-  RefreshCw,
-  ExternalLink
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { formatPhoneNumber } from "@/lib/utils";
+  MessageSquare, Search, Send, Phone, ArrowLeft, RefreshCw,
+  CheckCheck, Check, Clock, Wifi, WifiOff, MoreVertical, Instagram, Facebook,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
 
-interface Conversation {
-  customer_phone: string;
-  customer_name: string | null;
-  customer_id: string | null;
-  last_message: string;
-  last_message_direction: string;
-  last_message_at: string;
-  unread_count: number;
-  message_count: number;
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface WaChat {
+  id: string; name: string; phone: string; lastMessage: string;
+  lastMessageTime: string | null; lastMessageFromMe: boolean;
+  unreadCount: number; isGroup: boolean;
+}
+interface WaMessage {
+  id: string; body: string; fromMe: boolean; type: string;
+  hasMedia: boolean; timestamp: string; ack: number; author: string | null;
+}
+interface WaStatus {
+  isReady: boolean; isAuthenticated: boolean; hasQr: boolean;
+  clientInfo?: { name: string; phone: string };
+}
+interface IgConversation {
+  id: string; name: string; igUserId: string; lastMessage: string;
+  lastMessageTime: string | null; lastMessageFromMe: boolean; unreadCount: number;
+}
+interface IgMessage {
+  id: string; body: string; fromMe: boolean; fromName: string;
+  type: string; hasMedia: boolean; mediaUrl: string | null;
+  timestamp: string; ack: number;
+}
+interface FbConversation {
+  id: string; name: string; fbUserId: string; lastMessage: string;
+  lastMessageTime: string | null; lastMessageFromMe: boolean; unreadCount: number;
+}
+interface FbMessage {
+  id: string; body: string; fromMe: boolean; fromName: string;
+  type: string; hasMedia: boolean; mediaUrl: string | null;
+  timestamp: string; ack: number;
 }
 
-interface Message {
-  id: string;
-  customer_phone: string;
-  customer_name: string | null;
-  direction: "inbound" | "outbound";
-  message_type: string;
-  message_text: string;
-  is_bot_reply: boolean;
-  ai_context: Record<string, unknown>;
-  status: string;
-  read_at: string | null;
-  created_at: string;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const WA_BACKEND = process.env.NEXT_PUBLIC_WA_BACKEND_URL || "http://localhost:3001";
+
+function timeAgo(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso), now = new Date();
+  const diff = now.getTime() - d.getTime();
+  const mins = Math.floor(diff / 60000), hrs = Math.floor(diff / 3600000), days = Math.floor(diff / 86400000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  if (hrs < 24) return `${hrs}h`;
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString("en-IN", { weekday: "short" });
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+function formatMsgTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+}
+function formatDateHeader(iso: string) {
+  const d = new Date(iso);
+  if (d.toDateString() === new Date().toDateString()) return "Today";
+  if (d.toDateString() === new Date(Date.now() - 86400000).toDateString()) return "Yesterday";
+  return d.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+function groupByDate<T extends { timestamp: string }>(msgs: T[]) {
+  const groups: { date: string; messages: T[] }[] = [];
+  msgs.forEach((m) => {
+    const key = new Date(m.timestamp).toDateString();
+    if (!groups.length || groups[groups.length - 1].date !== key) groups.push({ date: key, messages: [m] });
+    else groups[groups.length - 1].messages.push(m);
+  });
+  return groups;
+}
+function AckIcon({ ack }: { ack: number }) {
+  if (ack === 3) return <CheckCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />;
+  if (ack === 2) return <CheckCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
+  if (ack === 1) return <Check className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
+  return <Clock className="w-3 h-3 text-slate-400 shrink-0" />;
 }
 
-interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  email: string | null;
-  status: string;
-  total_orders: number;
-  total_spent: number;
-  notes: string | null;
+// ─── Shared message bubble renderer ──────────────────────────────────────────
+function MessageBubble({
+  body, fromMe, type, hasMedia, timestamp, ack, senderName, senderInitial, accentColor,
+}: {
+  body: string; fromMe: boolean; type: string; hasMedia: boolean;
+  timestamp: string; ack: number; senderName: string; senderInitial: string;
+  accentColor: string;
+}) {
+  return (
+    <div className={`flex mb-1 ${fromMe ? "justify-end" : "justify-start"}`}>
+      {!fromMe && (
+        <div className="w-7 shrink-0 mr-1 self-end">
+          <div className={`w-7 h-7 rounded-full ${accentColor} flex items-center justify-center text-white text-xs font-bold`}>
+            {senderInitial}
+          </div>
+        </div>
+      )}
+      <div className={`max-w-[65%] flex flex-col ${fromMe ? "items-end" : "items-start"}`}>
+        <div className={`px-3 py-2 rounded-2xl shadow-sm ${
+          fromMe ? "bg-violet-600 text-white rounded-br-sm" : "bg-white text-slate-800 rounded-bl-sm border border-slate-100"
+        }`}>
+          {type === "chat" ? (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{body}</p>
+          ) : hasMedia ? (
+            <p className="text-sm italic opacity-70">📎 {type} attachment</p>
+          ) : (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {body || <span className="italic opacity-50">({type})</span>}
+            </p>
+          )}
+          <div className={`flex items-center gap-1 mt-0.5 justify-end ${fromMe ? "text-violet-200" : "text-slate-400"}`}>
+            <span className="text-[10px]">{formatMsgTime(timestamp)}</span>
+            {fromMe && <AckIcon ack={ack} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ConversationsPage() {
-  const searchParams = useSearchParams();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  // ── Source tab ─────────────────────────────────────────────────────────────
+  const [activeSource, setActiveSource] = useState<"whatsapp" | "instagram" | "facebook">("whatsapp");
+
+  // ── WhatsApp state ─────────────────────────────────────────────────────────
+  const [waStatus, setWaStatus] = useState<WaStatus>({ isReady: false, isAuthenticated: false, hasQr: false });
+  const [chats, setChats] = useState<WaChat[]>([]);
+  const [loadingChats, setLoadingChats] = useState(false);
+  const [selectedChat, setSelectedChat] = useState<WaChat | null>(null);
+  const [messages, setMessages] = useState<WaMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [newMessage, setNewMessage] = useState("");
+  const [sending, setSending] = useState(false);
+
+  // ── Instagram state ────────────────────────────────────────────────────────
+  const [igConversations, setIgConversations] = useState<IgConversation[]>([]);
+  const [igSelectedConv, setIgSelectedConv] = useState<IgConversation | null>(null);
+  const [igMessages, setIgMessages] = useState<IgMessage[]>([]);
+  const [igNewMessage, setIgNewMessage] = useState("");
+  const [igSending, setIgSending] = useState(false);
+  const [igConnected, setIgConnected] = useState(false);
+  const [igConnectedAs, setIgConnectedAs] = useState("");
+  const [loadingIgChats, setLoadingIgChats] = useState(false);
+  const [loadingIgMessages, setLoadingIgMessages] = useState(false);
+  const [igMsgHasMore, setIgMsgHasMore] = useState(false);
+  const [igLoadingOlder, setIgLoadingOlder] = useState(false);
+  const igMsgCursorRef = useRef<string | null>(null);
+  const igLastUpdatedRef = useRef<string | null>(null);
+
+  // ── Facebook state ────────────────────────────────────────────────────────
+  const [fbConversations, setFbConversations] = useState<FbConversation[]>([]);
+  const [fbSelectedConv, setFbSelectedConv] = useState<FbConversation | null>(null);
+  const [fbMessages, setFbMessages] = useState<FbMessage[]>([]);
+  const [fbNewMessage, setFbNewMessage] = useState("");
+  const [fbSending, setFbSending] = useState(false);
+  const [fbConnected, setFbConnected] = useState(false);
+  const [fbConnectedAs, setFbConnectedAs] = useState("");
+  const [loadingFbChats, setLoadingFbChats] = useState(false);
+  const [loadingFbMessages, setLoadingFbMessages] = useState(false);
+  const [fbMsgHasMore, setFbMsgHasMore] = useState(false);
+  const [fbLoadingOlder, setFbLoadingOlder] = useState(false);
+  const fbMsgCursorRef = useRef<string | null>(null);
+  const fbLastUpdatedRef = useRef<string | null>(null);
+
+  // ── Shared ─────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
-  const [stats, setStats] = useState({ total: 0, unread: 0, today: 0 });
-  const [showCustomerPanel, setShowCustomerPanel] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState(false);
-  const [customerForm, setCustomerForm] = useState<Partial<Customer>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const prevMsgCountRef = useRef(0);
+  const prevChatIdRef = useRef<string | null>(null);
 
-  // Check for phone param on mount
-  useEffect(() => {
-    const phoneParam = searchParams.get("phone");
-    if (phoneParam) {
-      setSelectedPhone(phoneParam);
-    }
-  }, [searchParams]);
-
-  // Fetch conversations list
-  const fetchConversations = async () => {
+  // ── WA: status poll ────────────────────────────────────────────────────────
+  const fetchWaStatus = useCallback(async () => {
     try {
-      const response = await fetch("/api/conversations");
-      const data = await response.json();
-      setConversations(data.conversations || []);
-      setStats(data.stats || { total: 0, unread: 0, today: 0 });
-    } catch (error) {
-      console.error("Error fetching conversations:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Fetch messages for selected conversation
-  const fetchMessages = async (phone: string) => {
-    setMessagesLoading(true);
-    try {
-      const response = await fetch(`/api/conversations?phone=${encodeURIComponent(phone)}`);
-      const data = await response.json();
-      setMessages(data.messages || []);
-      setCustomer(data.customer || null);
-      if (data.customer) {
-        setCustomerForm(data.customer);
-      }
-      
-      // Update unread count in conversation list
-      setConversations(prev => prev.map(c => 
-        c.customer_phone === phone ? { ...c, unread_count: 0 } : c
-      ));
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-    } finally {
-      setMessagesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchConversations();
-    // Poll for new messages every 10 seconds
-    const interval = setInterval(fetchConversations, 10000);
-    return () => clearInterval(interval);
+      const res = await fetch(`${WA_BACKEND}/status`);
+      setWaStatus(await res.json());
+    } catch (_) {}
   }, []);
 
   useEffect(() => {
-    if (selectedPhone) {
-      fetchMessages(selectedPhone);
-    }
-  }, [selectedPhone]);
+    fetchWaStatus();
+    const iv = setInterval(fetchWaStatus, 5000);
+    return () => clearInterval(iv);
+  }, [fetchWaStatus]);
+
+  // ── WA: chats ─────────────────────────────────────────────────────────────
+  const fetchChats = useCallback(async () => {
+    if (!waStatus.isReady) return;
+    setLoadingChats(true);
+    try {
+      const res = await fetch("/api/conversations/live-chats");
+      const data = await res.json();
+      setChats(data.chats || []);
+    } catch (_) {}
+    setLoadingChats(false);
+  }, [waStatus.isReady]);
 
   useEffect(() => {
-    // Scroll to bottom when messages change
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (activeSource !== "whatsapp") return;
+    fetchChats();
+    const iv = setInterval(fetchChats, 8000);
+    return () => clearInterval(iv);
+  }, [fetchChats, activeSource]);
 
-  // Update customer
-  const updateCustomer = async () => {
-    if (!selectedPhone) return;
+  // ── WA: messages ──────────────────────────────────────────────────────────
+  const fetchMessages = useCallback(async (chatId: string) => {
+    setLoadingMessages(true);
     try {
-      const response = await fetch(`/api/conversations/${encodeURIComponent(selectedPhone)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(customerForm)
-      });
-      const data = await response.json();
-      if (data.customer) {
-        setCustomer(data.customer);
-        setEditingCustomer(false);
+      const res = await fetch(`/api/conversations/live-messages/${encodeURIComponent(chatId)}?limit=60`);
+      const data = await res.json();
+      setMessages(data.messages || []);
+    } catch (_) {}
+    setLoadingMessages(false);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedChat) return;
+    fetchMessages(selectedChat.id);
+    const iv = setInterval(() => fetchMessages(selectedChat.id), 5000);
+    return () => clearInterval(iv);
+  }, [selectedChat, fetchMessages]);
+
+  // ── IG: conversations (incremental=true only fetches updated ones) ──────────
+  const fetchIgConversations = useCallback(async (incremental = false) => {
+    if (!incremental) setLoadingIgChats(true);
+    try {
+      const since = incremental && igLastUpdatedRef.current
+        ? `?since=${encodeURIComponent(igLastUpdatedRef.current)}`
+        : "";
+      const res = await fetch(`/api/social/instagram/conversations${since}`);
+      const data = await res.json();
+      const newConvs: IgConversation[] = data.conversations || [];
+
+      if (incremental && newConvs.length > 0) {
+        // Merge: update changed conversations at the top, keep unchanged below
+        setIgConversations((prev) => {
+          const updatedIds = new Set(newConvs.map((c) => c.id));
+          const unchanged = prev.filter((c) => !updatedIds.has(c.id));
+          return [...newConvs, ...unchanged];
+        });
+      } else if (!incremental) {
+        setIgConversations(newConvs);
       }
-    } catch (error) {
-      console.error("Error updating customer:", error);
+
+      if (data.lastUpdated) igLastUpdatedRef.current = data.lastUpdated;
+      setIgConnected(!data.error);
+      setIgConnectedAs(data.connectedAs || "");
+    } catch (_) { setIgConnected(false); }
+    setLoadingIgChats(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeSource !== "instagram") return;
+    fetchIgConversations(false); // full load on first switch
+    const iv = setInterval(() => fetchIgConversations(true), 30000); // incremental every 30s
+    return () => clearInterval(iv);
+  }, [activeSource, fetchIgConversations]);
+
+  // ── IG: messages — fresh load or load-older via cursor ───────────────────
+  const fetchIgMessages = useCallback(async (convId: string, loadOlder = false) => {
+    if (loadOlder) {
+      const cursor = igMsgCursorRef.current;
+      if (!cursor) return;
+      setIgLoadingOlder(true);
+      try {
+        const res = await fetch(
+          `/api/social/instagram/messages/${encodeURIComponent(convId)}?cursor=${encodeURIComponent(cursor)}`
+        );
+        const data = await res.json();
+        // Prepend older messages above existing ones
+        setIgMessages((prev) => [...(data.messages || []), ...prev]);
+        igMsgCursorRef.current = data.nextCursor || null;
+        setIgMsgHasMore(!!data.nextCursor);
+      } catch (_) {}
+      setIgLoadingOlder(false);
+    } else {
+      // Fresh load — fetch latest 25 messages
+      setLoadingIgMessages(true);
+      igMsgCursorRef.current = null;
+      try {
+        const res = await fetch(`/api/social/instagram/messages/${encodeURIComponent(convId)}`);
+        const data = await res.json();
+        setIgMessages(data.messages || []);
+        igMsgCursorRef.current = data.nextCursor || null;
+        setIgMsgHasMore(!!data.nextCursor);
+      } catch (_) {}
+      setLoadingIgMessages(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!igSelectedConv) return;
+    fetchIgMessages(igSelectedConv.id, false); // fresh load on conversation open
+    // No auto-poll for IG messages — use manual refresh or after-send refresh
+  }, [igSelectedConv, fetchIgMessages]);
+
+  // ── FB: conversations (incremental) ────────────────────────────────────
+  const fetchFbConversations = useCallback(async (incremental = false) => {
+    if (!incremental) setLoadingFbChats(true);
+    try {
+      const since = incremental && fbLastUpdatedRef.current
+        ? `?since=${encodeURIComponent(fbLastUpdatedRef.current)}`
+        : "";
+      const res = await fetch(`/api/social/facebook/conversations${since}`);
+      const data = await res.json();
+      const newConvs: FbConversation[] = data.conversations || [];
+      if (incremental && newConvs.length > 0) {
+        setFbConversations((prev) => {
+          const updatedIds = new Set(newConvs.map((c) => c.id));
+          return [...newConvs, ...prev.filter((c) => !updatedIds.has(c.id))];
+        });
+      } else if (!incremental) {
+        setFbConversations(newConvs);
+      }
+      if (data.lastUpdated) fbLastUpdatedRef.current = data.lastUpdated;
+      setFbConnected(!data.error);
+      setFbConnectedAs(data.connectedAs || "");
+    } catch (_) { setFbConnected(false); }
+    setLoadingFbChats(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeSource !== "facebook") return;
+    fetchFbConversations(false);
+    const iv = setInterval(() => fetchFbConversations(true), 30000);
+    return () => clearInterval(iv);
+  }, [activeSource, fetchFbConversations]);
+
+  // ── FB: messages ───────────────────────────────────────────────────
+  const fetchFbMessages = useCallback(async (convId: string, loadOlder = false) => {
+    if (loadOlder) {
+      const cursor = fbMsgCursorRef.current;
+      if (!cursor) return;
+      setFbLoadingOlder(true);
+      try {
+        const res = await fetch(
+          `/api/social/facebook/messages/${encodeURIComponent(convId)}?cursor=${encodeURIComponent(cursor)}`
+        );
+        const data = await res.json();
+        setFbMessages((prev) => [...(data.messages || []), ...prev]);
+        fbMsgCursorRef.current = data.nextCursor || null;
+        setFbMsgHasMore(!!data.nextCursor);
+      } catch (_) {}
+      setFbLoadingOlder(false);
+    } else {
+      setLoadingFbMessages(true);
+      fbMsgCursorRef.current = null;
+      try {
+        const res = await fetch(`/api/social/facebook/messages/${encodeURIComponent(convId)}`);
+        const data = await res.json();
+        setFbMessages(data.messages || []);
+        fbMsgCursorRef.current = data.nextCursor || null;
+        setFbMsgHasMore(!!data.nextCursor);
+      } catch (_) {}
+      setLoadingFbMessages(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!fbSelectedConv) return;
+    fetchFbMessages(fbSelectedConv.id, false);
+  }, [fbSelectedConv, fetchFbMessages]);
+
+  // ── Auto-scroll: only on new messages or chat change ─────────────────────
+  const activeMsgs = activeSource === "whatsapp" ? messages : activeSource === "instagram" ? igMessages : fbMessages;
+  const activeChatId = activeSource === "whatsapp" ? (selectedChat?.id ?? null) : activeSource === "instagram" ? (igSelectedConv?.id ?? null) : (fbSelectedConv?.id ?? null);
+
+  useEffect(() => {
+    const chatChanged = activeChatId !== prevChatIdRef.current;
+    const newArrived = activeMsgs.length > prevMsgCountRef.current;
+    if (chatChanged || newArrived) {
+      messagesEndRef.current?.scrollIntoView({ behavior: chatChanged ? "instant" : "smooth" });
+    }
+    prevMsgCountRef.current = activeMsgs.length;
+    prevChatIdRef.current = activeChatId;
+  }, [activeMsgs, activeChatId]);
+
+  // ── WA: send ──────────────────────────────────────────────────────────────
+  const handleSend = async () => {
+    if (!newMessage.trim() || !selectedChat || sending) return;
+    const text = newMessage.trim();
+    setNewMessage("");
+    setSending(true);
+    const opt: WaMessage = {
+      id: "opt-" + Date.now(), body: text, fromMe: true, type: "chat",
+      hasMedia: false, timestamp: new Date().toISOString(), ack: 0, author: null,
+    };
+    setMessages((p) => [...p, opt]);
+    try {
+      await fetch("/api/conversations/live-send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: selectedChat.id, message: text }),
+      });
+      setTimeout(() => fetchMessages(selectedChat.id), 2000);
+    } catch (_) {}
+    setSending(false);
+    inputRef.current?.focus();
+  };
+
+  // ── IG: send ──────────────────────────────────────────────────────────────
+  const handleIgSend = async () => {
+    if (!igNewMessage.trim() || !igSelectedConv || igSending) return;
+    const text = igNewMessage.trim();
+    setIgNewMessage("");
+    setIgSending(true);
+    const opt: IgMessage = {
+      id: "opt-" + Date.now(), body: text, fromMe: true, fromName: "Me",
+      type: "chat", hasMedia: false, mediaUrl: null,
+      timestamp: new Date().toISOString(), ack: 0,
+    };
+    setIgMessages((p) => [...p, opt]);
+    try {
+      await fetch("/api/social/instagram/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientId: igSelectedConv.igUserId, message: text }),
+      });
+      setTimeout(() => fetchIgMessages(igSelectedConv.id, false), 3000);
+    } catch (_) {}
+    setIgSending(false);
+  };
+
+  // ── FB: send ─────────────────────────────────────────────────────────────────
+  const handleFbSend = async () => {
+    if (!fbNewMessage.trim() || !fbSelectedConv || fbSending) return;
+    const text = fbNewMessage.trim();
+    setFbNewMessage("");
+    setFbSending(true);
+    const opt: FbMessage = {
+      id: "opt-" + Date.now(), body: text, fromMe: true, fromName: "Me",
+      type: "chat", hasMedia: false, mediaUrl: null,
+      timestamp: new Date().toISOString(), ack: 0,
+    };
+    setFbMessages((p) => [...p, opt]);
+    try {
+      await fetch("/api/social/facebook/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientId: fbSelectedConv.fbUserId, message: text }),
+      });
+      setTimeout(() => fetchFbMessages(fbSelectedConv.id, false), 3000);
+    } catch (_) {}
+    setFbSending(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (activeSource === "whatsapp") handleSend();
+      else if (activeSource === "instagram") handleIgSend();
+      else handleFbSend();
     }
   };
 
-  // Filter conversations by search
-  const filteredConversations = conversations.filter(c => {
-    const query = searchQuery.toLowerCase();
-    return (
-      c.customer_phone.includes(query) ||
-      c.customer_name?.toLowerCase().includes(query) ||
-      c.last_message.toLowerCase().includes(query)
-    );
-  });
-
-  // Format time ago
-  const timeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days === 1) return "Yesterday";
-    if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const openChat = (chat: WaChat) => {
+    setSelectedChat(chat);
+    setMessages([]);
+    prevMsgCountRef.current = 0;
+    setChats((p) => p.map((c) => c.id === chat.id ? { ...c, unreadCount: 0 } : c));
+  };
+  const openIgConv = (conv: IgConversation) => {
+    setIgSelectedConv(conv);
+    setIgMessages([]);
+    igMsgCursorRef.current = null;
+    setIgMsgHasMore(false);
+    prevMsgCountRef.current = 0;
+  };
+  const openFbConv = (conv: FbConversation) => {
+    setFbSelectedConv(conv);
+    setFbMessages([]);
+    fbMsgCursorRef.current = null;
+    setFbMsgHasMore(false);
+    prevMsgCountRef.current = 0;
   };
 
-  // Format message time
-  const formatMessageTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true
-    });
-  };
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const filteredWaChats = chats.filter((c) =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone.includes(searchQuery)
+  );
+  const filteredIgConvs = igConversations.filter((c) =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const filteredFbConvs = fbConversations.filter((c) =>
+    c.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  // Group messages by date
-  const groupMessagesByDate = (msgs: Message[]) => {
-    const groups: { date: string; messages: Message[] }[] = [];
-    let currentDate = "";
-    
-    msgs.forEach(msg => {
-      const msgDate = new Date(msg.created_at).toDateString();
-      if (msgDate !== currentDate) {
-        currentDate = msgDate;
-        groups.push({ date: msgDate, messages: [msg] });
-      } else {
-        groups[groups.length - 1].messages.push(msg);
-      }
-    });
-    
-    return groups;
-  };
+  const hasActiveChat = activeSource === "whatsapp" ? !!selectedChat : activeSource === "instagram" ? !!igSelectedConv : !!fbSelectedConv;
+  const activeDisplayName = activeSource === "whatsapp"
+    ? selectedChat?.name
+    : activeSource === "instagram" ? igSelectedConv?.name : fbSelectedConv?.name;
+  const activeSubtitle = activeSource === "whatsapp"
+    ? (selectedChat?.phone ? `+${selectedChat.phone}` : selectedChat?.id?.replace("@c.us", ""))
+    : activeSource === "instagram" ? igSelectedConv?.igUserId : fbSelectedConv?.fbUserId;
 
-  const formatDateHeader = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
-    
-    if (dateString === today) return "Today";
-    if (dateString === yesterday) return "Yesterday";
-    return date.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
-  };
+  const BG_PATTERN = `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e2e8f0' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`;
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="h-[calc(100vh-120px)] flex">
-      {/* Conversations List */}
-      <div className={`${selectedPhone ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-96 border-r border-gray-800`}>
+    <div className="flex flex-1 min-h-0 bg-white overflow-hidden">
+
+      {/* ── Left panel ───────────────────────────────────────────────────── */}
+      <div className={`${hasActiveChat ? "hidden lg:flex" : "flex"} flex-col w-full lg:w-[360px] shrink-0 border-r border-slate-200 bg-white`}>
+
         {/* Header */}
-        <div className="p-4 border-b border-gray-800">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <MessageSquare className="w-6 h-6 text-green-500" />
-              WhatsApp
-            </h1>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={fetchConversations}
-              className="hover:bg-white/10"
+        <div className="px-4 py-3 border-b border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center">
+                <MessageSquare className="w-4 h-4 text-white" />
+              </div>
+              <h1 className="font-semibold text-slate-900 text-base">Conversations</h1>
+            </div>
+            <button
+            onClick={() => activeSource === "whatsapp" ? fetchChats() : activeSource === "instagram" ? fetchIgConversations(false) : fetchFbConversations(false)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
             >
-              <RefreshCw className="w-4 h-4" />
-            </Button>
+              <RefreshCw className={`w-4 h-4 ${(loadingChats || loadingIgChats) ? "animate-spin" : ""}`} />
+            </button>
           </div>
-          
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="glass-card rounded-lg p-2 text-center">
-              <p className="text-lg font-bold">{stats.total}</p>
-              <p className="text-xs text-gray-500">Chats</p>
-            </div>
-            <div className="glass-card rounded-lg p-2 text-center">
-              <p className="text-lg font-bold text-orange-500">{stats.unread}</p>
-              <p className="text-xs text-gray-500">Unread</p>
-            </div>
-            <div className="glass-card rounded-lg p-2 text-center">
-              <p className="text-lg font-bold text-green-500">{stats.today}</p>
-              <p className="text-xs text-gray-500">Today</p>
-            </div>
+
+          {/* Source tabs: WhatsApp | Instagram | Facebook */}
+          <div className="flex gap-1 p-1 bg-slate-100 rounded-xl mb-3">
+            <button
+              onClick={() => { setActiveSource("whatsapp"); setSearchQuery(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                activeSource === "whatsapp"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {waStatus.isReady ? (
+                <Wifi className="w-3.5 h-3.5 text-green-500" />
+              ) : (
+                <WifiOff className="w-3.5 h-3.5" />
+              )}
+              WA
+            </button>
+            <button
+              onClick={() => { setActiveSource("instagram"); setSearchQuery(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                activeSource === "instagram"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <Instagram className={`w-3.5 h-3.5 ${igConnected ? "text-pink-500" : ""}`} />
+              IG
+            </button>
+            <button
+              onClick={() => { setActiveSource("facebook"); setSearchQuery(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                activeSource === "facebook"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <Facebook className={`w-3.5 h-3.5 ${fbConnected ? "text-blue-500" : ""}`} />
+              FB
+            </button>
+          </div>
+
+          {/* Connection status line */}
+          <div className="text-[10px] mb-2 text-slate-400 flex items-center gap-1">
+            {activeSource === "whatsapp" ? (
+              waStatus.isReady
+                ? <><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />{waStatus.clientInfo?.name || "Connected"}</>
+                : <><span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" />{waStatus.isAuthenticated ? "Loading…" : "Not connected"}</>
+            ) : activeSource === "instagram" ? (
+              igConnected
+                ? <><span className="w-1.5 h-1.5 rounded-full bg-pink-500 inline-block" />@{igConnectedAs}</>
+                : <><span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" />Not connected</>
+            ) : (
+              fbConnected
+                ? <><span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />{fbConnectedAs}</>
+                : <><span className="w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" />Not connected</>
+            )}
           </div>
 
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
             <Input
-              placeholder="Search conversations..."
+              placeholder="Search…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-white/5 border-gray-800"
+              className="pl-9 bg-slate-50 border-slate-200 h-9 text-sm rounded-xl"
             />
           </div>
         </div>
 
-        {/* Conversation List */}
+        {/* Chat list */}
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-40">
-              <Loader2 className="w-6 h-6 text-gray-500 animate-spin" />
-            </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-gray-500">
-              <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
-              <p>No conversations yet</p>
-              <p className="text-sm">WhatsApp messages will appear here</p>
-            </div>
-          ) : (
-            filteredConversations.map((conv) => (
-              <button
-                key={conv.customer_phone}
-                onClick={() => setSelectedPhone(conv.customer_phone)}
-                className={`w-full p-4 flex items-start gap-3 hover:bg-white/5 transition-colors border-b border-gray-800/50 ${
-                  selectedPhone === conv.customer_phone ? 'bg-white/10' : ''
-                }`}
-              >
-                {/* Avatar */}
-                <div className="relative">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-lg font-bold">
-                    {conv.customer_name?.[0]?.toUpperCase() || conv.customer_phone.slice(-2)}
-                  </div>
-                  {conv.unread_count > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full text-xs flex items-center justify-center font-bold">
-                      {conv.unread_count}
-                    </span>
-                  )}
-                </div>
 
-                {/* Content */}
-                <div className="flex-1 text-left min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium truncate">
-                      {conv.customer_name || formatPhoneNumber(conv.customer_phone.replace("+91", ""))}
-                    </span>
-                    <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
-                      {timeAgo(conv.last_message_at)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-400 truncate flex items-center gap-1">
-                    {conv.last_message_direction === "outbound" && (
-                      <CheckCheck className="w-4 h-4 text-blue-400 flex-shrink-0" />
+          {/* ── WhatsApp list ── */}
+          {activeSource === "whatsapp" && (
+            <>
+              {!waStatus.isReady && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 px-6 text-center">
+                  <WifiOff className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm font-medium text-slate-500">WhatsApp not connected</p>
+                  <p className="text-xs mt-1">Go to WhatsApp Marketing to connect.</p>
+                </div>
+              )}
+              {waStatus.isReady && loadingChats && !chats.length && (
+                <div className="flex items-center justify-center h-32 text-slate-400">
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…
+                </div>
+              )}
+              {waStatus.isReady && !loadingChats && filteredWaChats.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400">
+                  <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm">No conversations found</p>
+                </div>
+              )}
+              {filteredWaChats.map((chat) => (
+                <button
+                  key={chat.id}
+                  onClick={() => openChat(chat)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 text-left ${
+                    selectedChat?.id === chat.id ? "bg-violet-50 border-violet-100" : ""
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-base ${chat.isGroup ? "bg-teal-500" : "bg-violet-500"}`}>
+                      {chat.name?.[0]?.toUpperCase() || "?"}
+                    </div>
+                    {chat.unreadCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] text-white font-bold flex items-center justify-center">
+                        {chat.unreadCount > 99 ? "99+" : chat.unreadCount}
+                      </span>
                     )}
-                    {conv.last_message}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className={`text-sm truncate ${chat.unreadCount > 0 ? "font-semibold text-slate-900" : "font-medium text-slate-800"}`}>
+                        {chat.name}
+                      </span>
+                      <span className={`text-[11px] shrink-0 ml-2 ${chat.unreadCount > 0 ? "text-green-600 font-medium" : "text-slate-400"}`}>
+                        {timeAgo(chat.lastMessageTime)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate flex items-center gap-1">
+                      {chat.lastMessageFromMe && <CheckCheck className="w-3 h-3 shrink-0 text-slate-300" />}
+                      {chat.lastMessage || <span className="italic">No messages</span>}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* ── Instagram list ── */}
+          {activeSource === "instagram" && (
+            <>
+              {!igConnected && !loadingIgChats && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 px-6 text-center">
+                  <Instagram className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm font-medium text-slate-500">Instagram not connected</p>
+                  <p className="text-xs mt-1">
+                    Go to{" "}
+                    <a href="/admin/settings?tab=integrations" className="text-pink-400 underline">
+                      Settings → Integrations
+                    </a>{" "}
+                    to connect.
                   </p>
                 </div>
-              </button>
-            ))
+              )}
+              {igConnected && loadingIgChats && !igConversations.length && (
+                <div className="flex items-center justify-center h-32 text-slate-400">
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading DMs…
+                </div>
+              )}
+              {igConnected && !loadingIgChats && filteredIgConvs.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400">
+                  <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm">No DMs found</p>
+                </div>
+              )}
+              {filteredIgConvs.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => openIgConv(conv)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 text-left ${
+                    igSelectedConv?.id === conv.id ? "bg-pink-50 border-pink-100" : ""
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white font-semibold text-base">
+                      {conv.name?.[0]?.toUpperCase() || "?"}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-sm truncate font-medium text-slate-800">{conv.name}</span>
+                      <span className="text-[11px] shrink-0 ml-2 text-slate-400">{timeAgo(conv.lastMessageTime)}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate">
+                      {conv.lastMessage || <span className="italic">No messages</span>}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* ── Facebook list ── */}
+          {activeSource === "facebook" && (
+            <>
+              {!fbConnected && !loadingFbChats && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 px-6 text-center">
+                  <Facebook className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm font-medium text-slate-500">Facebook not connected</p>
+                  <p className="text-xs mt-1">
+                    Go to{" "}
+                    <a href="/admin/settings?tab=integrations" className="text-blue-400 underline">
+                      Settings → Integrations
+                    </a>{" "}
+                    to connect.
+                  </p>
+                </div>
+              )}
+              {fbConnected && loadingFbChats && !fbConversations.length && (
+                <div className="flex items-center justify-center h-32 text-slate-400">
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading Messenger…
+                </div>
+              )}
+              {fbConnected && !loadingFbChats && filteredFbConvs.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400">
+                  <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="text-sm">No Messenger conversations found</p>
+                </div>
+              )}
+              {filteredFbConvs.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => openFbConv(conv)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 text-left ${
+                    fbSelectedConv?.id === conv.id ? "bg-blue-50 border-blue-100" : ""
+                  }`}
+                >
+                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white font-semibold text-base shrink-0">
+                    {conv.name?.[0]?.toUpperCase() || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-sm truncate font-medium text-slate-800">{conv.name}</span>
+                      <span className="text-[11px] shrink-0 ml-2 text-slate-400">{timeAgo(conv.lastMessageTime)}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate">
+                      {conv.lastMessage || <span className="italic">No messages</span>}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </>
           )}
         </div>
       </div>
 
-      {/* Chat Area */}
-      {selectedPhone ? (
-        <div className="flex-1 flex flex-col">
-          {/* Chat Header */}
-          <div className="p-4 border-b border-gray-800 flex items-center justify-between glass">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden"
-                onClick={() => setSelectedPhone(null)}
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center font-bold">
-                {customer?.name?.[0]?.toUpperCase() || selectedPhone.slice(-2)}
-              </div>
-              
-              <div>
-                <h2 className="font-semibold">
-                  {customer?.name || formatPhoneNumber(selectedPhone.replace("+91", ""))}
-                </h2>
-                <p className="text-xs text-gray-500 flex items-center gap-1">
-                  <Phone className="w-3 h-3" />
-                  {selectedPhone}
-                </p>
-              </div>
+      {/* ── Right: Chat window ────────────────────────────────────────────── */}
+      {hasActiveChat ? (
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-50">
+
+          {/* Chat header */}
+          <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shrink-0">
+            <button
+              onClick={() => activeSource === "whatsapp" ? setSelectedChat(null) : setIgSelectedConv(null)}
+              className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold shrink-0 ${
+              activeSource === "instagram"
+                ? "bg-gradient-to-br from-pink-500 to-purple-600"
+                : activeSource === "facebook"
+                ? "bg-gradient-to-br from-blue-500 to-blue-700"
+                : (selectedChat?.isGroup ? "bg-teal-500" : "bg-violet-500")
+            }`}>
+              {activeDisplayName?.[0]?.toUpperCase() || "?"}
             </div>
 
-            <div className="flex items-center gap-2">
-              {customer && (
-                <Badge className={`${
-                  customer.status === 'vip' ? 'bg-purple-500' :
-                  customer.status === 'active' ? 'bg-green-500' :
-                  customer.status === 'new' ? 'bg-blue-500' :
-                  'bg-gray-500'
-                } text-white border-0`}>
-                  {customer.status}
-                </Badge>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-slate-900 text-sm truncate">{activeDisplayName}</p>
+              <p className="text-xs text-slate-400 flex items-center gap-1">
+                {activeSource === "instagram"
+                  ? <><Instagram className="w-3 h-3" />{activeSubtitle}</>
+                  : activeSource === "facebook"
+                  ? <><Facebook className="w-3 h-3" />{activeSubtitle}</>
+                  : <><Phone className="w-3 h-3" />{activeSubtitle}</>
+                }
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => activeSource === "whatsapp" && selectedChat
+                  ? fetchMessages(selectedChat.id)
+                  : activeSource === "instagram" && igSelectedConv
+                  ? fetchIgMessages(igSelectedConv.id, false)
+                  : fbSelectedConv && fetchFbMessages(fbSelectedConv.id, false)
+                }
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Refresh"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              {activeSource === "whatsapp" && selectedChat && (
+                <a
+                  href={`https://web.whatsapp.com/send?phone=${selectedChat.phone}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Open in WhatsApp Web"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </a>
               )}
-              
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowCustomerPanel(!showCustomerPanel)}
-                className="hover:bg-white/10"
-              >
-                <UserCircle className="w-5 h-5" />
-              </Button>
-              
-              <Link 
-                href={`https://wa.me/${selectedPhone.replace("+", "")}`}
-                target="_blank"
-              >
-                <Button variant="ghost" size="icon" className="hover:bg-white/10">
-                  <ExternalLink className="w-5 h-5" />
-                </Button>
-              </Link>
             </div>
           </div>
 
-          {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[url('/chat-bg.png')] bg-repeat bg-opacity-5">
-            {messagesLoading ? (
+          {/* Messages area */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1" style={{ backgroundImage: BG_PATTERN }}>
+            {(loadingMessages && activeSource === "whatsapp" && !messages.length) && (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+                <RefreshCw className="w-5 h-5 text-violet-400 animate-spin" />
               </div>
-            ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
-                <p>No messages yet</p>
-              </div>
-            ) : (
-              groupMessagesByDate(messages).map((group) => (
-                <div key={group.date}>
-                  {/* Date Header */}
-                  <div className="flex justify-center mb-4">
-                    <span className="px-3 py-1 bg-gray-800/80 rounded-lg text-xs text-gray-400">
-                      {formatDateHeader(group.date)}
-                    </span>
-                  </div>
-                  
-                  {/* Messages */}
-                  {group.messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex mb-2 ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}
-                    >
-                      <div
-                        className={`max-w-[75%] rounded-2xl px-4 py-2 ${
-                          msg.direction === "outbound"
-                            ? "bg-green-600 rounded-br-sm"
-                            : "bg-gray-800 rounded-bl-sm"
-                        }`}
-                      >
-                        {msg.is_bot_reply && (
-                          <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
-                            <Bot className="w-3 h-3" />
-                            <span>AI Reply</span>
-                          </div>
-                        )}
-                        <p className="text-sm whitespace-pre-wrap">{msg.message_text}</p>
-                        <div className="flex items-center justify-end gap-1 mt-1">
-                          <span className="text-[10px] text-gray-400">
-                            {formatMessageTime(msg.created_at)}
-                          </span>
-                          {msg.direction === "outbound" && (
-                            msg.status === "read" ? (
-                              <CheckCheck className="w-3 h-3 text-blue-400" />
-                            ) : (
-                              <Check className="w-3 h-3 text-gray-400" />
-                            )
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))
             )}
+            {(loadingIgMessages && activeSource === "instagram" && !igMessages.length) && (
+              <div className="flex items-center justify-center h-full">
+                <RefreshCw className="w-5 h-5 text-pink-400 animate-spin" />
+              </div>
+            )}
+            {(loadingFbMessages && activeSource === "facebook" && !fbMessages.length) && (
+              <div className="flex items-center justify-center h-full">
+                <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
+              </div>
+            )}
+            {(!loadingMessages && activeSource === "whatsapp" && messages.length === 0) && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            )}
+            {(!loadingIgMessages && activeSource === "instagram" && igMessages.length === 0) && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            )}
+            {(!loadingFbMessages && activeSource === "facebook" && fbMessages.length === 0) && (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">No messages yet</p>
+              </div>
+            )}
+
+            {/* Load older messages button — Instagram */}
+            {activeSource === "instagram" && igMessages.length > 0 && (igMsgHasMore || igLoadingOlder) && (
+              <div className="flex justify-center py-3">
+                <button
+                  onClick={() => igSelectedConv && fetchIgMessages(igSelectedConv.id, true)}
+                  disabled={igLoadingOlder}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-colors"
+                >
+                  {igLoadingOlder
+                    ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Loading older…</>
+                    : <><RefreshCw className="w-3.5 h-3.5" />Load older messages</>
+                  }
+                </button>
+              </div>
+            )}
+
+            {/* Load older messages button — Facebook */}
+            {activeSource === "facebook" && fbMessages.length > 0 && (fbMsgHasMore || fbLoadingOlder) && (
+              <div className="flex justify-center py-3">
+                <button
+                  onClick={() => fbSelectedConv && fetchFbMessages(fbSelectedConv.id, true)}
+                  disabled={fbLoadingOlder}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-slate-200 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-colors"
+                >
+                  {fbLoadingOlder
+                    ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" />Loading older…</>
+                    : <><RefreshCw className="w-3.5 h-3.5" />Load older messages</>
+                  }
+                </button>
+              </div>
+            )}
+
+            {activeSource === "whatsapp" && groupByDate(messages).map((group) => (
+              <div key={group.date}>
+                <div className="flex justify-center my-4">
+                  <span className="px-3 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-500 shadow-sm">
+                    {formatDateHeader(group.messages[0].timestamp)}
+                  </span>
+                </div>
+                {group.messages.map((msg, i) => {
+                  const prev = group.messages[i - 1];
+                  const showAvatar = !msg.fromMe && (!prev || prev.fromMe);
+                  return (
+                    <div key={msg.id}>
+                      {!msg.fromMe && !showAvatar && <div className="w-7 inline-block" />}
+                      <MessageBubble
+                        body={msg.body} fromMe={msg.fromMe} type={msg.type}
+                        hasMedia={msg.hasMedia} timestamp={msg.timestamp} ack={msg.ack}
+                        senderName={selectedChat?.name || ""} senderInitial={selectedChat?.name?.[0]?.toUpperCase() || "?"}
+                        accentColor="bg-violet-400"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {activeSource === "instagram" && groupByDate(igMessages).map((group) => (
+              <div key={group.date}>
+                <div className="flex justify-center my-4">
+                  <span className="px-3 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-500 shadow-sm">
+                    {formatDateHeader(group.messages[0].timestamp)}
+                  </span>
+                </div>
+                {group.messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    body={msg.body} fromMe={msg.fromMe} type={msg.type}
+                    hasMedia={msg.hasMedia} timestamp={msg.timestamp} ack={msg.ack}
+                    senderName={msg.fromName} senderInitial={msg.fromName?.[0]?.toUpperCase() || "?"}
+                    accentColor="bg-gradient-to-br from-pink-500 to-purple-600"
+                  />
+                ))}
+              </div>
+            ))}
+
+            {activeSource === "facebook" && groupByDate(fbMessages).map((group) => (
+              <div key={group.date}>
+                <div className="flex justify-center my-4">
+                  <span className="px-3 py-1 bg-white border border-slate-200 rounded-full text-xs text-slate-500 shadow-sm">
+                    {formatDateHeader(group.messages[0].timestamp)}
+                  </span>
+                </div>
+                {group.messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    body={msg.body} fromMe={msg.fromMe} type={msg.type}
+                    hasMedia={msg.hasMedia} timestamp={msg.timestamp} ack={msg.ack}
+                    senderName={msg.fromName} senderInitial={msg.fromName?.[0]?.toUpperCase() || "?"}
+                    accentColor="bg-gradient-to-br from-blue-500 to-blue-700"
+                  />
+                ))}
+              </div>
+            ))}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Info Banner */}
-          <div className="p-3 border-t border-gray-800 bg-yellow-500/10 text-center">
-            <p className="text-xs text-yellow-400">
-              💡 Replies are sent via n8n workflow. Open in WhatsApp to respond directly.
+          {/* Input bar */}
+          <div className="bg-white border-t border-slate-200 px-4 py-3 shrink-0">
+            {activeSource === "whatsapp" && !waStatus.isReady && (
+              <p className="text-xs text-center text-amber-500 mb-2">⚠️ WhatsApp not connected — cannot send.</p>
+            )}
+            {activeSource === "instagram" && !igConnected && (
+              <p className="text-xs text-center text-pink-400 mb-2">⚠️ Instagram not connected — cannot send.</p>
+            )}
+            {activeSource === "facebook" && !fbConnected && (
+              <p className="text-xs text-center text-blue-400 mb-2">⚠️ Facebook not connected — cannot send.</p>
+            )}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={activeSource === "whatsapp" ? newMessage : activeSource === "instagram" ? igNewMessage : fbNewMessage}
+                  onChange={(e) => activeSource === "whatsapp" ? setNewMessage(e.target.value) : activeSource === "instagram" ? setIgNewMessage(e.target.value) : setFbNewMessage(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type a message…"
+                  disabled={activeSource === "whatsapp" ? !waStatus.isReady : activeSource === "instagram" ? !igConnected : !fbConnected}
+                  className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 outline-none disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={activeSource === "whatsapp" ? handleSend : activeSource === "instagram" ? handleIgSend : handleFbSend}
+                disabled={
+                  activeSource === "whatsapp"
+                    ? (!newMessage.trim() || !waStatus.isReady || sending)
+                    : activeSource === "instagram"
+                    ? (!igNewMessage.trim() || !igConnected || igSending)
+                    : (!fbNewMessage.trim() || !fbConnected || fbSending)
+                }
+                className={`w-10 h-10 rounded-full disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0 ${
+                  activeSource === "instagram"
+                    ? "bg-gradient-to-br from-pink-500 to-purple-600 hover:opacity-90"
+                    : activeSource === "facebook"
+                    ? "bg-gradient-to-br from-blue-500 to-blue-700 hover:opacity-90"
+                    : "bg-violet-600 hover:bg-violet-700"
+                }`}
+              >
+                {(sending || igSending || fbSending) ? (
+                  <RefreshCw className="w-4 h-4 text-white animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4 text-white" />
+                )}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 text-center mt-1.5">
+              Press Enter to send ·{" "}
+              {activeSource === "whatsapp" ? "Syncs every 5s" : "Refresh to load new messages"}
             </p>
           </div>
         </div>
       ) : (
-        <div className="hidden lg:flex flex-1 items-center justify-center">
-          <div className="text-center text-gray-500">
-            <MessageSquare className="w-20 h-20 mx-auto mb-4 opacity-50" />
-            <p className="text-xl font-medium">Select a conversation</p>
-            <p className="text-sm">Choose from your existing conversations</p>
-          </div>
-        </div>
-      )}
-
-      {/* Customer Panel */}
-      {showCustomerPanel && selectedPhone && (
-        <div className="w-80 border-l border-gray-800 overflow-y-auto">
-          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-            <h3 className="font-semibold">Customer Details</h3>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowCustomerPanel(false)}
-            >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-
-          <div className="p-4 space-y-4">
-            {/* Customer Info */}
-            <div className="text-center mb-6">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-3xl font-bold mx-auto mb-3">
-                {customer?.name?.[0]?.toUpperCase() || "?"}
-              </div>
-              <h4 className="font-semibold text-lg">{customer?.name || "Unknown"}</h4>
-              <p className="text-sm text-gray-500">{selectedPhone}</p>
+        <div className="hidden lg:flex flex-1 items-center justify-center bg-slate-50">
+          <div className="text-center">
+            <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
+              {activeSource === "instagram"
+                ? <Instagram className="w-10 h-10 text-slate-300" />
+                : activeSource === "facebook"
+                ? <Facebook className="w-10 h-10 text-slate-300" />
+                : <MessageSquare className="w-10 h-10 text-slate-300" />
+              }
             </div>
-
-            {/* Edit Customer Form */}
-            {editingCustomer ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-gray-500">Name</label>
-                  <Input
-                    value={customerForm.name || ""}
-                    onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                    className="bg-white/5 border-gray-800"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Email</label>
-                  <Input
-                    value={customerForm.email || ""}
-                    onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
-                    className="bg-white/5 border-gray-800"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Status</label>
-                  <Select
-                    value={customerForm.status || "active"}
-                    onValueChange={(value) => setCustomerForm({ ...customerForm, status: value })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-gray-800">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="new">New</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="vip">VIP</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Notes</label>
-                  <Textarea
-                    value={customerForm.notes || ""}
-                    onChange={(e) => setCustomerForm({ ...customerForm, notes: e.target.value })}
-                    className="bg-white/5 border-gray-800"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={updateCustomer}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setEditingCustomer(false)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Quick Stats */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="glass-card rounded-lg p-3 text-center">
-                    <ShoppingCart className="w-5 h-5 mx-auto mb-1 text-blue-500" />
-                    <p className="text-lg font-bold">{customer?.total_orders || 0}</p>
-                    <p className="text-xs text-gray-500">Orders</p>
-                  </div>
-                  <div className="glass-card rounded-lg p-3 text-center">
-                    <Tag className="w-5 h-5 mx-auto mb-1 text-green-500" />
-                    <p className="text-lg font-bold">₹{((customer?.total_spent || 0) / 1000).toFixed(0)}K</p>
-                    <p className="text-xs text-gray-500">Spent</p>
-                  </div>
-                </div>
-
-                {/* Info Cards */}
-                <div className="space-y-2">
-                  <div className="glass-card rounded-lg p-3 flex items-center gap-3">
-                    <Phone className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm">{selectedPhone}</span>
-                  </div>
-                  {customer?.email && (
-                    <div className="glass-card rounded-lg p-3 flex items-center gap-3">
-                      <Mail className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm">{customer.email}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Notes */}
-                {customer?.notes && (
-                  <div className="glass-card rounded-lg p-3">
-                    <p className="text-xs text-gray-500 mb-1">Notes</p>
-                    <p className="text-sm">{customer.notes}</p>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <Button
-                  variant="outline"
-                  className="w-full border-gray-700"
-                  onClick={() => setEditingCustomer(true)}
-                >
-                  <Edit2 className="w-4 h-4 mr-2" />
-                  Edit Customer
-                </Button>
-
-                <Link href={`/admin/orders?customer=${selectedPhone}`}>
-                  <Button className="w-full bg-orange-600 hover:bg-orange-700">
-                    <ShoppingCart className="w-4 h-4 mr-2" />
-                    Create Order
-                  </Button>
-                </Link>
-              </>
-            )}
+            <p className="font-semibold text-slate-700">
+              {activeSource === "instagram" ? "Instagram DMs" : activeSource === "facebook" ? "Facebook Messenger" : "WhatsApp Inbox"}
+            </p>
+            <p className="text-sm text-slate-400 mt-1 max-w-xs">
+              {activeSource === "instagram"
+                ? igConnected
+                  ? "Select a conversation to start chatting"
+                  : "Connect Instagram from Settings → Integrations"
+                : activeSource === "facebook"
+                ? fbConnected
+                  ? "Select a conversation to start chatting"
+                  : "Connect Facebook from Settings → Integrations"
+                : waStatus.isReady
+                  ? "Select a conversation to start chatting"
+                  : "Connect WhatsApp from the Marketing page"
+              }
+            </p>
           </div>
         </div>
       )}

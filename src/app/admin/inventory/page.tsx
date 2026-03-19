@@ -213,7 +213,7 @@ export default function InventoryPage() {
             </SelectTrigger>
             <SelectContent className="bg-gray-900 border-gray-800">
               <SelectItem value="all">All Status</SelectItem>
-              {((biz.inventory_statuses as string[]) || Object.keys(statusConfig)).map((s) => (
+              {(((biz as unknown as Record<string, unknown>).inventory_statuses as string[]) || Object.keys(statusConfig)).map((s) => (
                 <SelectItem key={s} value={s}>{s}</SelectItem>
               ))}
             </SelectContent>

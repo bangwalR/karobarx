@@ -27,7 +27,7 @@ export async function sendInvoiceEmail({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "MobileHub Delhi <invoices@mobilehub.in>",
+      from: "MobileHub Delhi <invoices@hiringround.online>",
     to: [to],
     subject: `Your Invoice ${orderNumber} - MobileHub Delhi`,
     html: `

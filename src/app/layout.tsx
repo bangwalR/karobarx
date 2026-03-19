@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { BusinessProvider } from "@/contexts/BusinessContext";
 import { SessionProvider } from "@/components/session-provider";
 import "./globals.css";
+
+const GA_ID = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,15 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MobileHub Delhi - Premium Second-Hand Phones",
-  description: "Delhi's most trusted destination for quality pre-owned smartphones. IMEI verified phones with warranty. iPhone, Samsung, OnePlus at best prices.",
-  keywords: "second hand mobile Delhi, used phone Nehru Place, refurbished iPhone Delhi, Samsung used phone, OnePlus second hand",
-  openGraph: {
-    title: "MobileHub Delhi - Premium Second-Hand Phones",
-    description: "Quality pre-owned smartphones with warranty in Delhi",
-    type: "website",
-    locale: "en_IN",
-  },
+  title: "MobileHub Delhi - CRM Dashboard",
+  description: "CRM and business management dashboard for MobileHub Delhi.",
 };
 
 export default function RootLayout({
@@ -35,6 +31,24 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {GA_ID && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+              strategy="afterInteractive"
+            />
+            <Script id="gtag-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${GA_ID}', { page_path: window.location.pathname });
+              `}
+            </Script>
+          </>
+        )}
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

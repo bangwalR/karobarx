@@ -1,8 +1,9 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
+import { Notifications } from "@/lib/notify";
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const searchParams = request.nextUrl.searchParams;
   
   const source = searchParams.get("source");
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const body = await request.json();
 
   const {
@@ -142,11 +143,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Fire push notification (non-blocking)
+  Notifications.newLead(name || "Unknown", source);
+
   return NextResponse.json({ lead: data });
 }
 
 export async function PUT(request: NextRequest) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -172,7 +176,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
