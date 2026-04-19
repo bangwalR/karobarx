@@ -49,6 +49,12 @@
 :root {
   --radius: 0.625rem;
 
+  /* Dynamic Theme Colors (set by ThemeContext) */
+  --color-primary: #7c3aed;
+  --color-accent: #06b6d4;
+  --color-primary-rgb: 124 58 237;
+  --color-accent-rgb: 6 182 212;
+
   /* Base */
   --background: #ffffff;
   --foreground: #0f172a;
@@ -61,8 +67,8 @@
   --popover: #ffffff;
   --popover-foreground: #0f172a;
 
-  /* Primary — violet matching KarobarX */
-  --primary: #7c3aed;
+  /* Primary — uses dynamic theme color */
+  --primary: var(--color-primary);
   --primary-foreground: #ffffff;
 
   /* Secondary */
@@ -73,9 +79,9 @@
   --muted: #f8fafc;
   --muted-foreground: #64748b;
 
-  /* Accent */
+  /* Accent — uses dynamic theme color */
   --accent: #f5f3ff;
-  --accent-foreground: #7c3aed;
+  --accent-foreground: var(--color-primary);
 
   /* Destructive */
   --destructive: #ef4444;
@@ -83,11 +89,11 @@
   /* Border / Input / Ring */
   --border: #e2e8f0;
   --input: #e2e8f0;
-  --ring: #7c3aed;
+  --ring: var(--color-primary);
 
   /* Chart colors */
-  --chart-1: #7c3aed;
-  --chart-2: #06b6d4;
+  --chart-1: var(--color-primary);
+  --chart-2: var(--color-accent);
   --chart-3: #22c55e;
   --chart-4: #f59e0b;
   --chart-5: #ec4899;
@@ -95,12 +101,12 @@
   /* Sidebar */
   --sidebar: #ffffff;
   --sidebar-foreground: #0f172a;
-  --sidebar-primary: #7c3aed;
+  --sidebar-primary: var(--color-primary);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f5f3ff;
-  --sidebar-accent-foreground: #7c3aed;
+  --sidebar-accent-foreground: var(--color-primary);
   --sidebar-border: #e2e8f0;
-  --sidebar-ring: #7c3aed;
+  --sidebar-ring: var(--color-primary);
 }
 
 @layer base {
@@ -276,4 +282,113 @@
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
   color: #0f172a !important;
+}
+
+
+/* ── Dynamic Theme Utilities ── */
+/* These classes use the CSS variables set by ThemeContext */
+
+/* Background colors */
+.bg-theme-primary {
+  background-color: var(--color-primary) !important;
+}
+
+.bg-theme-primary\/10 {
+  background-color: rgb(var(--color-primary-rgb) / 0.1) !important;
+}
+
+.bg-theme-primary\/20 {
+  background-color: rgb(var(--color-primary-rgb) / 0.2) !important;
+}
+
+.bg-theme-accent {
+  background-color: var(--color-accent) !important;
+}
+
+.bg-theme-accent\/10 {
+  background-color: rgb(var(--color-accent-rgb) / 0.1) !important;
+}
+
+/* Text colors */
+.text-theme-primary {
+  color: var(--color-primary) !important;
+}
+
+.text-theme-accent {
+  color: var(--color-accent) !important;
+}
+
+/* Border colors */
+.border-theme-primary {
+  border-color: var(--color-primary) !important;
+}
+
+.border-theme-primary\/20 {
+  border-color: rgb(var(--color-primary-rgb) / 0.2) !important;
+}
+
+.border-theme-accent {
+  border-color: var(--color-accent) !important;
+}
+
+/* Hover states */
+.hover\:bg-theme-primary:hover {
+  background-color: var(--color-primary) !important;
+}
+
+.hover\:bg-theme-primary\/10:hover {
+  background-color: rgb(var(--color-primary-rgb) / 0.1) !important;
+}
+
+.hover\:text-theme-primary:hover {
+  color: var(--color-primary) !important;
+}
+
+.hover\:border-theme-primary:hover {
+  border-color: var(--color-primary) !important;
+}
+
+/* Override hardcoded violet colors with theme colors */
+.bg-violet-600, .bg-violet-500 {
+  background-color: var(--color-primary) !important;
+}
+
+.bg-violet-50 {
+  background-color: rgb(var(--color-primary-rgb) / 0.1) !important;
+}
+
+.text-violet-600, .text-violet-700, .text-violet-500 {
+  color: var(--color-primary) !important;
+}
+
+.border-violet-300, .border-violet-400 {
+  border-color: rgb(var(--color-primary-rgb) / 0.3) !important;
+}
+
+.hover\:bg-violet-700:hover, .hover\:bg-violet-600:hover {
+  background-color: var(--color-primary) !important;
+  filter: brightness(0.9);
+}
+
+.ring-violet-400, .focus\:ring-violet-400:focus {
+  --tw-ring-color: var(--color-primary) !important;
+}
+
+/* Cyan/accent color overrides */
+.bg-cyan-500, .bg-cyan-600 {
+  background-color: var(--color-accent) !important;
+}
+
+.text-cyan-500, .text-cyan-400 {
+  color: var(--color-accent) !important;
+}
+
+/* Gradient overrides */
+.from-violet-600 {
+  --tw-gradient-from: var(--color-primary) !important;
+}
+
+.to-violet-700 {
+  --tw-gradient-to: var(--color-primary) !important;
+  filter: brightness(0.9);
 }

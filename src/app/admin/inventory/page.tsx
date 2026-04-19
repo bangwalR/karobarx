@@ -32,7 +32,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatPrice } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { useBusiness } from "@/contexts/BusinessContext";
 
 interface InventoryItem {
@@ -73,13 +72,10 @@ export default function InventoryPage() {
   const fetchItems = async () => {
     try {
       setLoading(true);
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("phones")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      setItems(data || []);
+      const res = await fetch("/api/phones");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setItems(data.phones || []);
     } catch (err) {
       console.error("Error fetching inventory:", err);
     } finally {
@@ -90,9 +86,8 @@ export default function InventoryPage() {
   const handleDelete = async (id: string) => {
     if (!confirm(`Are you sure you want to delete this ${biz.product_name_singular.toLowerCase()}?`)) return;
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("phones").delete().eq("id", id);
-      if (error) throw error;
+      const res = await fetch(`/api/phones/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete");
       setItems((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       console.error("Error deleting item:", err);
