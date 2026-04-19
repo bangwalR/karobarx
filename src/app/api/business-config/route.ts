@@ -9,12 +9,21 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const profileId = getProfileId(request);
 
-    let query = supabase.from("business_config").select("*");
-    if (profileId) {
-      query = query.eq("id", profileId);
-    }
+    // CRITICAL: Only load a profile if we have a valid profileId cookie
+    // Never load random profiles from the database for unauthenticated/new users
+    let data = null;
+    let error = null;
 
-    const { data, error } = await query.limit(1).maybeSingle();
+    if (profileId) {
+      const result = await supabase
+        .from("business_config")
+        .select("*")
+        .eq("id", profileId)
+        .maybeSingle();
+      
+      data = result.data;
+      error = result.error;
+    }
 
     if (error && error.code !== "PGRST116") throw error;
 
@@ -102,15 +111,8 @@ export async function POST(request: NextRequest) {
         .eq("id", profileId)
         .maybeSingle();
       existingId = existing?.id ?? null;
-    } else {
-      // No cookie yet (brand-new install) — check if ANY row exists
-      const { data: existing } = await supabase
-        .from("business_config")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      existingId = existing?.id ?? null;
     }
+    // If no profileId cookie, we'll create a new profile (no fallback to existing profiles)
 
     let result;
     if (existingId) {

@@ -11,9 +11,18 @@ export async function GET(request: NextRequest) {
     const visibleOnly = searchParams.get('visibleOnly') === 'true'
     const profileId = getProfileId(request)
 
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
     let query = supabase
       .from('field_config')
       .select('*')
+      .eq('profile_id', profileId)
       .order('display_order', { ascending: true })
 
     if (table) {
@@ -22,11 +31,6 @@ export async function GET(request: NextRequest) {
 
     if (visibleOnly) {
       query = query.eq('is_visible', true)
-    }
-
-    // Scope to active profile so each profile has its own field visibility settings
-    if (profileId) {
-      query = query.eq('profile_id', profileId)
     }
 
     const { data, error } = await query
@@ -54,6 +58,14 @@ export async function POST(request: NextRequest) {
     const { table_name, field_name, field_label, field_type, is_visible, is_required, display_order, options, placeholder, default_value, section, is_system } = body
     const profileId = getProfileId(request)
 
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
     const fieldData = {
       table_name,
       field_name,
@@ -68,23 +80,17 @@ export async function POST(request: NextRequest) {
       default_value: default_value || null,
       section: section || 'general',
       updated_at: new Date().toISOString(),
-      ...(profileId ? { profile_id: profileId } : {}),
+      profile_id: profileId,
     }
 
-    // Check if record already exists (safe upsert that works with nullable profile_id)
-    let existsQuery = supabase
+    // Check if record already exists
+    const { data: existing } = await supabase
       .from('field_config')
       .select('id')
       .eq('table_name', table_name)
       .eq('field_name', field_name)
-
-    if (profileId) {
-      existsQuery = existsQuery.eq('profile_id', profileId)
-    } else {
-      existsQuery = existsQuery.is('profile_id', null)
-    }
-
-    const { data: existing } = await existsQuery.maybeSingle()
+      .eq('profile_id', profileId)
+      .maybeSingle()
 
     let data, error
     if (existing) {
@@ -127,28 +133,30 @@ export async function PUT(request: NextRequest) {
 
     const profileId = getProfileId(request)
 
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
     // Update each field
     const results = []
     for (const field of fields) {
-      // Safe upsert: check existence first (works with nullable profile_id)
-      let existsQuery = supabase
+      // Check existence
+      const { data: existing } = await supabase
         .from('field_config')
         .select('id')
         .eq('table_name', field.table_name)
         .eq('field_name', field.field_name)
-
-      if (profileId) {
-        existsQuery = existsQuery.eq('profile_id', profileId)
-      } else {
-        existsQuery = existsQuery.is('profile_id', null)
-      }
-
-      const { data: existing } = await existsQuery.maybeSingle()
+        .eq('profile_id', profileId)
+        .maybeSingle()
 
       const fieldData = {
         ...field,
         updated_at: new Date().toISOString(),
-        ...(profileId ? { profile_id: profileId } : {}),
+        profile_id: profileId,
       }
 
       let data, error

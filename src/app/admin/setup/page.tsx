@@ -296,10 +296,18 @@ function SetupWizard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ profile_id: newProfileId }),
         });
+        
+        // Wait a bit to ensure cookie is set on server
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
       toast.success(isFromSignup ? "Your CRM is ready! Welcome aboard 🎉" : isNewProfile ? "New profile created! 🎉" : "Setup complete! Welcome to your CRM 🎉");
-      setTimeout(() => router.push("/admin"), 1200);
+      
+      // Force a hard refresh to clear cached data and load the new profile
+      // Add a timestamp to bust any caches
+      setTimeout(() => {
+        window.location.href = "/admin?t=" + Date.now();
+      }, 1500);
     } catch (err) {
       console.error(err);
       toast.error("Something went wrong. Please try again.");

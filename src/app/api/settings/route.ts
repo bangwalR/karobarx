@@ -8,8 +8,15 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const profileId = getProfileId(request);
 
-    let query = supabase.from("settings").select("*");
-    if (profileId) query = query.eq("profile_id", profileId);
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { success: false, error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
+    let query = supabase.from("settings").select("*").eq("profile_id", profileId);
     const { data, error } = await query.limit(1).maybeSingle();
 
     // Fallback for pre-migration rows that still have no profile_id
@@ -80,18 +87,25 @@ export async function POST(request: NextRequest) {
     //  2. the active_profile_id cookie (normal admin editing Settings page)
     const profileId: string | null = settings.profile_id ?? getProfileId(request) ?? null;
 
+    // SECURITY: Require profile_id - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { success: false, error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
     // Strip profile_id from the settings payload so it isn’t written as a data field
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { profile_id: _pid, ...settingsPayload } = settings;
 
     // Look up existing settings row for this profile
-    let query = supabase.from("settings").select("id");
-    if (profileId) {
-      query = query.eq("profile_id", profileId);
-    } else {
-      query = query.is("profile_id", null);
-    }
-    const { data: existing } = await query.limit(1).maybeSingle();
+    const { data: existing } = await supabase
+      .from("settings")
+      .select("id")
+      .eq("profile_id", profileId)
+      .limit(1)
+      .maybeSingle();
 
     let result;
     if (existing) {
@@ -106,7 +120,7 @@ export async function POST(request: NextRequest) {
         .from("settings")
         .insert({
           ...settingsPayload,
-          ...(profileId ? { profile_id: profileId } : {}),
+          profile_id: profileId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -138,14 +152,21 @@ export async function PUT(request: NextRequest) {
     const updates = await request.json();
     const profileId = getProfileId(request);
 
-    // Get existing settings for this profile
-    let query = supabase.from("settings").select("*");
-    if (profileId) {
-      query = query.eq("profile_id", profileId);
-    } else {
-      query = query.is("profile_id", null);
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { success: false, error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
     }
-    const { data: existing } = await query.limit(1).maybeSingle();
+
+    // Get existing settings for this profile
+    const { data: existing } = await supabase
+      .from("settings")
+      .select("*")
+      .eq("profile_id", profileId)
+      .limit(1)
+      .maybeSingle();
     
     let result;
     if (existing) {
@@ -168,7 +189,7 @@ export async function PUT(request: NextRequest) {
         .from("settings")
         .insert({
           ...updates,
-          ...(profileId ? { profile_id: profileId } : {}),
+          profile_id: profileId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })

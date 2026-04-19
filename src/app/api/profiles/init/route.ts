@@ -26,10 +26,12 @@ export async function POST() {
       const supabase = await createClient();
 
       // Try to find a business_config owned by this admin user
+      // Prioritize completed profiles over incomplete ones
       const { data: owned } = await supabase
         .from("business_config")
-        .select("id")
+        .select("id, setup_completed")
         .eq("owner_id", session.user.id)
+        .order("setup_completed", { ascending: false })
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();

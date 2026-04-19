@@ -19,7 +19,8 @@ import {
   Eye,
   Clock,
   CheckCircle,
-  Activity
+  Activity,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -208,14 +209,22 @@ export default function AdminDashboard() {
     { name: 'Others', value: Math.floor(data.stats.inventory.total * 0.13) },
   ].filter(item => item.value > 0);
 
-  // Monthly Revenue Data (mock trend data)
-  const monthlyData = [
+  // Monthly Revenue Data - Only show real data, no mock data for new users
+  const monthlyData = data.stats.orders.total > 0 ? [
     { month: 'Aug', revenue: 180000, orders: 12 },
     { month: 'Sep', revenue: 220000, orders: 18 },
     { month: 'Oct', revenue: 280000, orders: 22 },
     { month: 'Nov', revenue: 350000, orders: 28 },
     { month: 'Dec', revenue: data.stats.revenue.thisMonth || 420000, orders: data.stats.orders.thisMonth || 32 },
     { month: 'Jan', revenue: data.stats.revenue.total * 0.15, orders: Math.floor(data.stats.orders.total * 0.18) },
+  ] : [
+    // Empty data for new users - all zeros
+    { month: 'Aug', revenue: 0, orders: 0 },
+    { month: 'Sep', revenue: 0, orders: 0 },
+    { month: 'Oct', revenue: 0, orders: 0 },
+    { month: 'Nov', revenue: 0, orders: 0 },
+    { month: 'Dec', revenue: 0, orders: 0 },
+    { month: 'Jan', revenue: 0, orders: 0 },
   ];
 
   // Customer Segments Data
@@ -225,13 +234,13 @@ export default function AdminDashboard() {
     { name: 'New', value: data.stats.customers.newThisMonth, color: '#22c55e' },
   ].filter(item => item.value > 0);
 
-  // Inquiry Sources Data
-  const inquirySourceData = [
+  // Inquiry Sources Data - Only show real data
+  const inquirySourceData = data.stats.inquiries.total > 0 ? [
     { name: 'WhatsApp', value: data.stats.inquiries.whatsapp, color: '#22c55e' },
     { name: 'Website', value: Math.floor(data.stats.inquiries.total * 0.25), color: '#3b82f6' },
     { name: 'Walk-in', value: Math.floor(data.stats.inquiries.total * 0.15), color: '#f97316' },
     { name: 'OLX', value: Math.floor(data.stats.inquiries.total * 0.1), color: '#8b5cf6' },
-  ].filter(item => item.value > 0);
+  ].filter(item => item.value > 0) : [];
 
   // Custom tooltip for charts
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -252,11 +261,52 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Empty State Banner for New Users */}
+      {data.stats.inventory.total === 0 && data.stats.orders.total === 0 && data.stats.customers.total === 0 && (
+        <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border-2 border-violet-200 rounded-2xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="bg-violet-600 p-3 rounded-xl">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Welcome to Your CRM! 🎉</h2>
+              <p className="text-slate-600 mb-4">
+                Your dashboard is ready! Start by adding your first inventory item, customer, or order to see your data come to life.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Link href="/admin/inventory/new">
+                  <Button className="bg-violet-600 hover:bg-violet-700 rounded-xl">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Inventory
+                  </Button>
+                </Link>
+                <Link href="/admin/customers">
+                  <Button variant="outline" className="border-violet-300 text-violet-700 hover:bg-violet-50 rounded-xl">
+                    <Users className="w-4 h-4 mr-2" />
+                    Add Customer
+                  </Button>
+                </Link>
+                <Link href="/admin/orders">
+                  <Button variant="outline" className="border-violet-300 text-violet-700 hover:bg-violet-50 rounded-xl">
+                    <ShoppingCart className="w-4 h-4 mr-2" />
+                    Create Order
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-gray-500 mt-1">Welcome back! Here&apos;s your inventory overview.</p>
+          <p className="text-gray-500 mt-1">
+            {data.stats.inventory.total === 0 && data.stats.orders.total === 0 
+              ? "Your fresh dashboard is ready to go!" 
+              : "Welcome back! Here's your inventory overview."}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Button 

@@ -9,6 +9,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const profileId = getProfileId(request);
     
+    // CRITICAL: Require profileId for data access
+    if (!profileId) {
+      return NextResponse.json({ 
+        error: "No active profile. Please log in again." 
+      }, { status: 401 });
+    }
+    
     const brand = searchParams.get("brand");
     const status = searchParams.get("status");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -17,11 +24,9 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("phones")
       .select("*")
+      .eq("profile_id", profileId) // REQUIRED: Filter by profile
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
-
-    // Filter by active profile so each business sees only its own inventory
-    if (profileId) query = query.eq("profile_id", profileId);
 
     if (brand) {
       query = query.eq("brand", brand);

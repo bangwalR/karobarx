@@ -203,6 +203,15 @@ type GCalEventRow = {
 // ── GET ───────────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const profileId = getProfileId(request);
+  
+  // SECURITY: Require profile_id cookie - no profile = no access
+  if (!profileId) {
+    return NextResponse.json(
+      { error: "No active profile. Please log out and log back in." },
+      { status: 401 }
+    );
+  }
+  
   const { searchParams } = new URL(request.url);
   const month = searchParams.get("month");
   const from = searchParams.get("from");
@@ -212,8 +221,8 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("calendar_events")
     .select(`*, leads(id, name, phone), customers(id, name, phone)`)
+    .eq("profile_id", profileId)
     .order("start_at", { ascending: true });
-  if (profileId) query = query.eq("profile_id", profileId);
 
   let startRange: string, endRange: string;
   if (month) {
@@ -285,6 +294,15 @@ export async function GET(request: NextRequest) {
 // ── POST ──────────────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   const profileId = getProfileId(request);
+  
+  // SECURITY: Require profile_id cookie - no profile = no access
+  if (!profileId) {
+    return NextResponse.json(
+      { error: "No active profile. Please log out and log back in." },
+      { status: 401 }
+    );
+  }
+  
   const body = await request.json();
   const {
     title, description, event_type = "meeting", start_at, end_at,
@@ -356,6 +374,15 @@ export async function POST(request: NextRequest) {
 // ── PUT ───────────────────────────────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
   const profileId = getProfileId(request);
+  
+  // SECURITY: Require profile_id cookie - no profile = no access
+  if (!profileId) {
+    return NextResponse.json(
+      { error: "No active profile. Please log out and log back in." },
+      { status: 401 }
+    );
+  }
+  
   const body = await request.json();
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -400,6 +427,15 @@ export async function PUT(request: NextRequest) {
 // ── DELETE ────────────────────────────────────────────────────────────────────
 export async function DELETE(request: NextRequest) {
   const profileId = getProfileId(request);
+  
+  // SECURITY: Require profile_id cookie - no profile = no access
+  if (!profileId) {
+    return NextResponse.json(
+      { error: "No active profile. Please log out and log back in." },
+      { status: 401 }
+    );
+  }
+  
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

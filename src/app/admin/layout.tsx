@@ -53,8 +53,8 @@ export default function AdminLayout({
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileDropOpen, setProfileDropOpen] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
-  const { config: bizConfig, refreshConfig } = useBusinessConfig();
-  const isSetupComplete = (bizConfig as { setup_completed?: boolean }).setup_completed ?? false;
+  const { config: bizConfig, refreshConfig, isLoading: configLoading } = useBusinessConfig();
+  const isSetupComplete = (bizConfig as { setup_completed?: boolean }).setup_completed ?? true;
 
   // Dynamic nav built from bizConfig
   const navigation = useMemo(() => {
@@ -100,17 +100,35 @@ export default function AdminLayout({
   // Only fires once bizConfig has loaded (bizConfig.id exists) so we don't
   // get a flash redirect while the context is still initialising.
   useEffect(() => {
+    // Don't redirect if:
+    // - Not authenticated
+    // - Already on setup or login page
+    // - Config is still loading
+    // - No profile ID loaded yet
     if (
       status !== "authenticated" ||
       pathname.startsWith("/admin/setup") ||
       pathname === "/admin/login" ||
-      !bizConfig.id        // still loading — wait for a real profile id
+      configLoading ||
+      !bizConfig.id
     ) return;
 
-    if (!isSetupComplete) {
+    // Only redirect to setup if the profile is truly incomplete:
+    // - setup_completed is explicitly false (not undefined, not true)
+    // - AND no display_name exists (brand new profile)
+    const setupExplicitlyIncomplete = bizConfig.setup_completed === false;
+    const hasNoDisplayName = !bizConfig.display_name || bizConfig.display_name.trim() === "";
+    const needsSetup = setupExplicitlyIncomplete && hasNoDisplayName;
+    
+    if (needsSetup) {
+      console.log("Redirecting to setup - profile incomplete:", { 
+        id: bizConfig.id, 
+        setup_completed: bizConfig.setup_completed, 
+        display_name: bizConfig.display_name 
+      });
       router.push("/admin/setup?from_signup=1");
     }
-  }, [status, isSetupComplete, bizConfig.id, pathname, router]);
+  }, [status, bizConfig.setup_completed, bizConfig.id, bizConfig.display_name, pathname, router, configLoading]);
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: "/admin/login" });

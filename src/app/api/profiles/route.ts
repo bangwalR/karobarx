@@ -1,17 +1,40 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 
-// GET — list all business profiles (for profile switcher + settings)
+// GET — list business profiles accessible to the current user
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Unauthenticated" 
+      }, { status: 401 });
+    }
+
     const supabase = await createClient();
 
-    const { data, error } = await supabase
+    // CRITICAL: Only load profiles owned by or linked to this user
+    // First, check if user has a profile_id (linked profile)
+    let query = supabase
       .from("business_config")
       .select(
         "id, business_type, display_name, product_name_singular, product_name_plural, order_prefix, setup_completed, created_at"
-      )
-      .order("created_at", { ascending: true });
+      );
+
+    // Filter by owner_id OR profiles the user has access to via their profile_id
+    if (session.user.profile_id) {
+      // User has a linked profile - show that one
+      query = query.eq("id", session.user.profile_id);
+    } else {
+      // User doesn't have a linked profile yet - show profiles they own
+      query = query.eq("owner_id", session.user.id);
+    }
+
+    query = query.order("created_at", { ascending: true });
+
+    const { data, error } = await query;
 
     if (error) throw error;
 

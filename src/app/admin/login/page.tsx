@@ -65,10 +65,13 @@ function LoginForm() {
       }
 
       // If business config hasn't been set up yet, send to setup wizard
+      // Only redirect if setup_completed is explicitly false AND no display_name
       try {
         const configCheck = await fetch("/api/business-config");
         const configData = await configCheck.json();
-        if (!configData.config?.setup_completed) {
+        const config = configData.config;
+        
+        if (config && config.setup_completed === false && !config.display_name) {
           router.push("/admin/setup?from_signup=1");
           router.refresh();
           return;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getProfileId } from "@/lib/profile";
 
 function formatPrice(rupees: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -12,6 +13,15 @@ function formatPrice(rupees: number): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const supabase = await createClient();
+  const profileId = getProfileId(request);
+  
+  // SECURITY: Require profile_id cookie - no profile = no access
+  if (!profileId) {
+    return NextResponse.json(
+      { error: "No active profile. Please log out and log back in." },
+      { status: 401 }
+    );
+  }
   
   // Get filter parameters
   const query = searchParams.get("query")?.toLowerCase() || "";
@@ -21,10 +31,11 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status") || "Available";
   const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 10;
 
-  // Build Supabase query
+  // Build Supabase query - ALWAYS scoped to profileId
   let dbQuery = supabase
     .from("phones")
     .select("*")
+    .eq("profile_id", profileId)
     .order("selling_price_paise", { ascending: true });
 
   // Apply status filter
@@ -61,10 +72,13 @@ export async function GET(request: NextRequest) {
   }
 
   // Get total available count
-  const { count: totalAvailable } = await supabase
+  let countQuery = supabase
     .from("phones")
     .select("*", { count: "exact", head: true })
+    .eq("profile_id", profileId)
     .eq("status", "Available");
+  
+  const { count: totalAvailable } = await countQuery;
 
   // Format response for n8n/WhatsApp
   const formattedResults = (phones || []).map(phone => ({
@@ -107,11 +121,21 @@ export async function POST(request: NextRequest) {
     const { query, brand, minBudget, maxBudget, limit = 5 } = body;
 
     const supabase = await createClient();
+    const profileId = getProfileId(request);
 
-    // Build Supabase query
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
+    // Build Supabase query - ALWAYS scoped to profileId
     let dbQuery = supabase
       .from("phones")
       .select("*")
+      .eq("profile_id", profileId)
       .eq("status", "Available")
       .order("selling_price", { ascending: true });
 

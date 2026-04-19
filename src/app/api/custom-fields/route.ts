@@ -10,18 +10,22 @@ export async function GET(request: NextRequest) {
     const tableName = searchParams.get("table");
     const profileId = getProfileId(request);
 
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
     let query = supabase
       .from("custom_fields")
       .select("*")
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: true });
 
     if (tableName) {
       query = query.eq("table_name", tableName);
-    }
-
-    // Each profile sees only its own custom fields
-    if (profileId) {
-      query = query.eq("profile_id", profileId);
     }
 
     const { data, error } = await query;
@@ -56,8 +60,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid table name" }, { status: 400 });
     }
 
-    // Create the custom field record, scoped to active profile
+    // SECURITY: Require profile_id cookie - no profile = no access
     const profileId = getProfileId(request);
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
+
+    // Create the custom field record, scoped to active profile
     const { data, error } = await supabase
       .from("custom_fields")
       .insert({
@@ -68,7 +80,7 @@ export async function POST(request: NextRequest) {
         options: options || null,
         required: required || false,
         created_at: new Date().toISOString(),
-        ...(profileId ? { profile_id: profileId } : {}),
+        profile_id: profileId,
       })
       .select()
       .single();

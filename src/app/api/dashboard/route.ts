@@ -16,13 +16,23 @@ function formatPrice(rupees: number): string {
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
+    
+    // CRITICAL: Get the active profile ID to scope all queries
+    const profileId = request.cookies.get("active_profile_id")?.value;
+    
+    if (!profileId) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "No active profile. Please log in again." 
+      }, { status: 401 });
+    }
 
-    // Fetch all data in parallel
+    // Fetch all data in parallel - SCOPED to the active profile
     const [phonesRes, ordersRes, customersRes, inquiriesRes] = await Promise.all([
-      supabase.from("phones").select("status, selling_price, cost_price, created_at"),
-      supabase.from("orders").select("status, final_amount, created_at"),
-      supabase.from("customers").select("status, total_spent, created_at"),
-      supabase.from("inquiries").select("status, source, created_at"),
+      supabase.from("phones").select("status, selling_price, cost_price, created_at").eq("profile_id", profileId),
+      supabase.from("orders").select("status, final_amount, created_at").eq("profile_id", profileId),
+      supabase.from("customers").select("status, total_spent, created_at").eq("profile_id", profileId),
+      supabase.from("inquiries").select("status, source, created_at").eq("profile_id", profileId),
     ]);
 
     const phones = phonesRes.data || [];
@@ -85,22 +95,25 @@ export async function GET(request: NextRequest) {
     const convertedInquiries = inquiries.filter(i => i.status === "converted").length;
     const conversionRate = inquiries.length > 0 ? Math.round((convertedInquiries / inquiries.length) * 100) : 0;
 
-    // Recent activity
+    // Recent activity - SCOPED to the active profile
     const { data: recentOrders } = await supabase
       .from("orders")
       .select("id, order_number, customer_name, phone_name, final_amount, status, created_at")
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: false })
       .limit(5);
 
     const { data: recentInquiries } = await supabase
       .from("inquiries")
       .select("id, name, phone, message, source, status, interested_in, created_at")
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: false })
       .limit(5);
 
     const { data: recentPhones } = await supabase
       .from("phones")
       .select("id, brand, model_name, selling_price, status, created_at")
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: false })
       .limit(5);
 

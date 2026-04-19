@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BusinessTemplate, getTemplateByType } from "@/lib/business-templates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,6 +60,8 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<BusinessConfig>(defaultConfig);
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Fetch the active profile config (server reads active_profile_id cookie)
   const fetchConfig = useCallback(async () => {
@@ -88,6 +91,32 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     fetchConfig();
     fetchProfiles();
   }, [fetchConfig, fetchProfiles]);
+
+  // Listen for profile changes (e.g., after setup completion)
+  // This ensures fresh data is loaded when returning from setup
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Refresh config when tab becomes visible
+        fetchConfig();
+        fetchProfiles();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [fetchConfig, fetchProfiles]);
+
+  // Refresh when URL changes (e.g., cache-busting timestamp from setup)
+  useEffect(() => {
+    const timestamp = searchParams.get('t');
+    if (timestamp && pathname === '/admin') {
+      // Force refresh when coming from setup with timestamp
+      setIsLoading(true);
+      fetchConfig();
+      fetchProfiles();
+    }
+  }, [pathname, searchParams, fetchConfig, fetchProfiles]);
 
   const updateConfig = useCallback(async (updates: Partial<BusinessConfig>): Promise<boolean> => {
     try {

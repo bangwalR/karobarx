@@ -17,15 +17,19 @@ export async function GET(request: NextRequest) {
 
     const profileId = getProfileId(request);
 
+    // CRITICAL: Require profileId for data access
+    if (!profileId) {
+      return NextResponse.json({ 
+        error: "No active profile. Please log in again." 
+      }, { status: 401 });
+    }
+
     let query = supabase
       .from("inquiries")
       .select("*", { count: "exact" })
+      .eq("profile_id", profileId) // REQUIRED: Filter by profile
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
-
-    if (profileId) {
-      query = query.eq("profile_id", profileId);
-    }
 
     if (search) {
       query = query.or(`customer_name.ilike.%${search}%,customer_phone.ilike.%${search}%,inquiry_text.ilike.%${search}%`);
@@ -46,9 +50,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Calculate stats
-    let statsQuery = supabase.from("inquiries").select("status, created_at");
-    if (profileId) statsQuery = statsQuery.eq("profile_id", profileId);
+    // Calculate stats - SCOPED to profile
+    const statsQuery = supabase.from("inquiries").select("status, created_at").eq("profile_id", profileId);
     const allInquiries = await statsQuery;
     const inquiriesData = allInquiries.data || [];
     

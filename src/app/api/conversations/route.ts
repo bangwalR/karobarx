@@ -1,23 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getProfileId } from "@/lib/profile";
 
 // GET - Fetch conversation threads or messages for a specific phone
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
+    const profileId = getProfileId(request);
+    
+    // SECURITY: Require profile_id cookie - no profile = no access
+    if (!profileId) {
+      return NextResponse.json(
+        { error: "No active profile. Please log out and log back in." },
+        { status: 401 }
+      );
+    }
     
     const phone = searchParams.get("phone");
     const limit = parseInt(searchParams.get("limit") || "50");
     
     // If phone provided, get all messages for that conversation
     if (phone) {
-      const { data: messages, error } = await supabase
+      let query = supabase
         .from("whatsapp_messages")
         .select("*")
+        .eq("profile_id", profileId)
         .eq("customer_phone", phone)
         .order("created_at", { ascending: true })
         .limit(limit);
+
+      const { data: messages, error } = await query;
 
       if (error) throw error;
 
@@ -44,10 +57,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Otherwise, get all conversation threads (grouped by customer)
-    const { data: threads, error } = await supabase
+    let threadsQuery = supabase
       .from("whatsapp_messages")
       .select("customer_phone, customer_name, customer_id, message_text, direction, created_at")
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: false });
+
+    const { data: threads, error } = await threadsQuery;
 
     if (error) throw error;
 
@@ -126,6 +142,7 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
     const body = await request.json();
+    const profileId = getProfileId(request);
 
     const {
       customer_phone,
@@ -208,7 +225,8 @@ export async function POST(request: NextRequest) {
         is_bot_reply,
         ai_context,
         status,
-        read_at: direction === "outbound" ? new Date().toISOString() : null
+        read_at: direction === "outbound" ? new Date().toISOString() : null,
+        ...(profileId ? { profile_id: profileId } : {}),
       }])
       .select()
       .single();
