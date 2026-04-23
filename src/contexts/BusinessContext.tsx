@@ -61,7 +61,15 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  
+  // Use searchParams safely - wrap in try-catch for SSR/build compatibility
+  let searchParams: ReturnType<typeof useSearchParams> | null = null;
+  try {
+    searchParams = useSearchParams();
+  } catch {
+    // During build/SSR, useSearchParams might not be available
+    searchParams = null;
+  }
 
   // Fetch the active profile config (server reads active_profile_id cookie)
   const fetchConfig = useCallback(async () => {
@@ -109,7 +117,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
 
   // Refresh when URL changes (e.g., cache-busting timestamp from setup)
   useEffect(() => {
-    const timestamp = searchParams.get('t');
+    const timestamp = searchParams?.get('t');
     if (timestamp && pathname === '/admin') {
       // Force refresh when coming from setup with timestamp
       setIsLoading(true);
