@@ -29,8 +29,8 @@ export async function GET() {
     let page = 0;
 
     while (nextUrl && page < 5) {
-      const res = await fetch(nextUrl, { cache: "no-store" });
-      const data = await res.json();
+      const res: Response = await fetch(nextUrl, { cache: "no-store" });
+      const data: { data?: unknown[]; error?: { message?: string }; paging?: { next?: string } } = await res.json();
 
       if (!res.ok || data.error) {
         return NextResponse.json({
