@@ -146,7 +146,8 @@ function SetupWizard() {
       const res = await fetch("/api/business-config");
       const json = await res.json();
       if (json.success && json.config?.setup_completed) {
-        router.push("/admin");
+        // Use replace to avoid adding to browser history
+        window.location.replace("/admin");
       }
     };
     check();
@@ -303,10 +304,17 @@ function SetupWizard() {
 
       toast.success(isFromSignup ? "Your CRM is ready! Welcome aboard 🎉" : isNewProfile ? "New profile created! 🎉" : "Setup complete! Welcome to your CRM 🎉");
       
-      // Force a hard refresh to clear cached data and load the new profile
-      // Add a timestamp to bust any caches
+      // Mark setup as done in both sessionStorage and localStorage
+      // This prevents the layout from ever redirecting back to setup
+      if (newProfileId) {
+        sessionStorage.setItem(`setup_done_${newProfileId}`, "1");
+        localStorage.setItem(`setup_done_${newProfileId}`, "1");
+      }
+
+      // Use replace() so the setup page is removed from browser history.
+      // This prevents the back button from returning to setup after completion.
       setTimeout(() => {
-        window.location.href = "/admin?t=" + Date.now();
+        window.location.replace("/admin?t=" + Date.now());
       }, 1500);
     } catch (err) {
       console.error(err);
@@ -796,7 +804,7 @@ function SetupWizard() {
         {!isFromSignup && (
           <div className="text-center mt-4">
             <button
-              onClick={() => router.push("/admin")}
+              onClick={() => window.location.replace("/admin")}
               className="text-xs text-slate-400 hover:text-slate-600 underline"
             >
               Skip — I already have an account

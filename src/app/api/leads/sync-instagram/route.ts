@@ -70,13 +70,24 @@ export async function POST() {
       .limit(1);
 
     if (existing && existing.length > 0) {
-      // Update last_contacted_at
+      // Update existing lead with latest message and timestamp
+      const updateData: {
+        last_contacted_at: string;
+        updated_at: string;
+        notes?: string;
+      } = {
+        last_contacted_at: conv.updated_time || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      // Update notes with latest message if available
+      if (lastMsg?.message) {
+        updateData.notes = `Last message: "${lastMsg.message.slice(0, 200)}"`;
+      }
+      
       await supabase
         .from("leads")
-        .update({
-          last_contacted_at: conv.updated_time || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", existing[0].id);
       skipped++;
     } else {

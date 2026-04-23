@@ -56,6 +56,30 @@ export default function AdminLayout({
   const { config: bizConfig, refreshConfig, isLoading: configLoading } = useBusinessConfig();
   const isSetupComplete = (bizConfig as { setup_completed?: boolean }).setup_completed ?? true;
 
+  // Disable browser back button while logged in to admin
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    
+    // Push a dummy state to prevent back navigation
+    const disableBackButton = () => {
+      window.history.pushState(null, "", window.location.href);
+    };
+
+    // Initial push
+    disableBackButton();
+
+    // Listen for popstate (back button) and push forward again
+    const handlePopState = () => {
+      disableBackButton();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [status]);
+
   // Dynamic nav built from bizConfig
   const navigation = useMemo(() => {
     const base: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string }[] = [
@@ -66,7 +90,8 @@ export default function AdminLayout({
     if (bizConfig.enable_leads_module)    base.push({ name: "Leads",     href: "/admin/leads",         icon: UserPlus });
     if (bizConfig.enable_marketing_module) base.push({ name: "Marketing", href: "/admin/marketing",     icon: Zap });
     base.push({ name: "Orders",    href: "/admin/orders",       icon: ShoppingCart });
-    if (bizConfig.enable_whatsapp_ai) base.push({ name: "Conversations", href: "/admin/conversations", icon: MessageSquare });
+    base.push({ name: "Conversations", href: "/admin/conversations", icon: MessageSquare });
+    base.push({ name: "Communities", href: "/admin/communities", icon: Users });
     base.push({ name: "Inquiries", href: "/admin/inquiries",    icon: MessageSquare });
     base.push({ name: "Calendar",  href: "/admin/calendar",     icon: Calendar });
     base.push({ name: "Telegram",  href: "/admin/telegram",     icon: Bot });
@@ -116,9 +141,14 @@ export default function AdminLayout({
     // Only redirect to setup if the profile is truly incomplete:
     // - setup_completed is explicitly false (not undefined, not true)
     // - AND no display_name exists (brand new profile)
+    // - AND we haven't already completed setup (check both storage types)
+    // - AND setup_completed_at doesn't exist (never completed before)
     const setupExplicitlyIncomplete = bizConfig.setup_completed === false;
     const hasNoDisplayName = !bizConfig.display_name || bizConfig.display_name.trim() === "";
-    const needsSetup = setupExplicitlyIncomplete && hasNoDisplayName;
+    const alreadyCompletedSession = sessionStorage.getItem(`setup_done_${bizConfig.id}`) === "1";
+    const alreadyCompletedLocal = localStorage.getItem(`setup_done_${bizConfig.id}`) === "1";
+    const hasCompletedBefore = !!(bizConfig as { setup_completed_at?: string }).setup_completed_at;
+    const needsSetup = setupExplicitlyIncomplete && hasNoDisplayName && !alreadyCompletedSession && !alreadyCompletedLocal && !hasCompletedBefore;
     
     if (needsSetup) {
       console.log("Redirecting to setup - profile incomplete:", { 

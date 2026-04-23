@@ -45,14 +45,70 @@ async function fetchPages(
 // `since` enables incremental sync — only returns conversations updated after that time
 export async function GET(req: NextRequest) {
   const conn = await getConnection();
+  
+  // Get active profile ID from cookie for security
+  const profileId = req.cookies.get("active_profile_id")?.value;
+  
+  // Even if Instagram is not connected, we can still show leads from database
+  const supabase = createAdminClient();
+  
+  // Fetch Instagram leads from database - last 60 days (covers current and previous month)
+  const now = new Date();
+  const sixtyDaysAgo = new Date(now);
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  
+  const { data: leads, error: leadsError } = await supabase
+    .from("leads")
+    .select("id, name, platform_user_id, platform_username, source, profile_id, created_at, updated_at, last_contacted_at")
+    .eq("source", "instagram")
+    .not("platform_user_id", "is", null)
+    .gte("updated_at", sixtyDaysAgo.toISOString())
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  
+  console.log("[IG conversations] Leads query result:", {
+    profileId,
+    leadsCount: leads?.length || 0,
+    error: leadsError?.message,
+    firstLead: leads?.[0],
+    dateRange: `Last 60 days (since ${sixtyDaysAgo.toISOString().split('T')[0]})`,
+    currentDate: now.toISOString().split('T')[0]
+  });
+
+  // If Instagram is not connected, return only leads
   if (!conn?.access_token) {
-    return NextResponse.json(
-      { error: "Instagram not connected", conversations: [] },
-      { status: 503 }
-    );
+    const leadConversations = (leads || []).map(lead => ({
+      id: `lead_${lead.id}`,
+      name: lead.name || lead.platform_username || "Instagram Lead",
+      igUserId: lead.platform_user_id!,
+      lastMessage: "New lead from Instagram",
+      lastMessageTime: lead.updated_at || lead.created_at,
+      lastMessageFromMe: false,
+      unreadCount: 1,
+      isLead: true,
+    }));
+
+    console.log("[IG conversations] No Instagram connection, returning leads only:", {
+      profileId,
+      leadsCount: leadConversations.length,
+      leads: leadConversations.map(l => ({ id: l.id, name: l.name, igUserId: l.igUserId }))
+    });
+
+    return NextResponse.json({
+      conversations: leadConversations,
+      connectedAs: null,
+      lastUpdated: null,
+      incremental: false,
+      leadsOnly: true, // Flag to indicate only leads are shown
+      debug: {
+        profileId,
+        leadsCount: leadConversations.length,
+        hasConnection: false
+      }
+    });
   }
 
-  const since = req.nextUrl.searchParams.get("since"); // ISO timestamp from client
+  const since = req.nextUrl.searchParams.get("since");
   const sinceDate = since ? new Date(since) : null;
 
   try {
@@ -62,31 +118,43 @@ export async function GET(req: NextRequest) {
       "fields",
       "id,participants,updated_time,messages.limit(1){id,message,created_time,from}"
     );
-    url.searchParams.set("limit", "25"); // 25 per page
+    url.searchParams.set("limit", "25");
     url.searchParams.set("access_token", conn.access_token);
 
-    // Incremental: pass Unix timestamp so IG only returns recently updated convs
     if (sinceDate) {
       url.searchParams.set("since", Math.floor(sinceDate.getTime() / 1000).toString());
     }
 
-    // Max 3 pages (75 convs) on full load; 2 pages on incremental (recently updated only)
     const maxPages = sinceDate ? 2 : 3;
     const allConvs = await fetchPages(url.toString(), maxPages, sinceDate ?? undefined);
 
-    // On first load with no results, surface any API errors
     if (!allConvs.length && !sinceDate) {
       const res = await fetch(url.toString(), { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
-        return NextResponse.json(
-          { error: data.error?.message || "Graph API error", conversations: [] },
-          { status: res.status }
-        );
+        // If API fails, still return leads
+        const leadConversations = (leads || []).map(lead => ({
+          id: `lead_${lead.id}`,
+          name: lead.name || lead.platform_username || "Instagram Lead",
+          igUserId: lead.platform_user_id!,
+          lastMessage: "New lead from Instagram",
+          lastMessageTime: lead.updated_at || lead.created_at,
+          lastMessageFromMe: false,
+          unreadCount: 1,
+          isLead: true,
+        }));
+
+        return NextResponse.json({
+          conversations: leadConversations,
+          connectedAs: conn.account_name,
+          lastUpdated: null,
+          incremental: false,
+          leadsOnly: true,
+          apiError: data.error?.message || "Graph API error",
+        });
       }
     }
 
-    // Filter by since date client-side (in case IG returns a few extras)
     const filtered = sinceDate
       ? allConvs.filter((c) => {
           const t = c.updated_time as string | undefined;
@@ -94,7 +162,6 @@ export async function GET(req: NextRequest) {
         })
       : allConvs;
 
-    // Track the newest updated_time to return to client for next incremental call
     let lastUpdated: string | null = null;
     const conversations = filtered.map((conv) => {
       const participants = conv.participants as { data: { id: string; name?: string; username?: string }[] } | undefined;
@@ -115,15 +182,59 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // Add leads as conversations if they don't already exist
+    const existingUserIds = new Set(conversations.map(c => c.igUserId));
+    const leadConversations = (leads || [])
+      .filter(lead => lead.platform_user_id && !existingUserIds.has(lead.platform_user_id))
+      .map(lead => ({
+        id: `lead_${lead.id}`,
+        name: lead.name || lead.platform_username || "Instagram Lead",
+        igUserId: lead.platform_user_id!,
+        lastMessage: "New lead from Instagram",
+        lastMessageTime: lead.updated_at || lead.created_at,
+        lastMessageFromMe: false,
+        unreadCount: 1,
+        isLead: true,
+      }));
+
+    // Merge conversations and leads, sort by time
+    const allConversations = [...conversations, ...leadConversations].sort((a, b) => {
+      const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
+      const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+      return timeB - timeA;
+    });
+
     return NextResponse.json({
-      conversations,
+      conversations: allConversations,
       connectedAs: conn.account_name,
-      lastUpdated,          // client stores this and passes as `since` on next refresh
+      lastUpdated,
       incremental: !!sinceDate,
+      leadsOnly: false,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "unknown";
     console.error("[IG conversations] Error:", msg);
-    return NextResponse.json({ error: msg, conversations: [] }, { status: 500 });
+    
+    // Even on error, return leads
+    const leadConversations = (leads || []).map(lead => ({
+      id: `lead_${lead.id}`,
+      name: lead.name || lead.platform_username || "Instagram Lead",
+      igUserId: lead.platform_user_id!,
+      lastMessage: "New lead from Instagram",
+      lastMessageTime: lead.updated_at || lead.created_at,
+      lastMessageFromMe: false,
+      unreadCount: 1,
+      isLead: true,
+    }));
+
+    return NextResponse.json({
+      conversations: leadConversations,
+      connectedAs: conn.account_name,
+      lastUpdated: null,
+      incremental: false,
+      leadsOnly: true,
+      error: msg,
+    });
   }
 }
+

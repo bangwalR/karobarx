@@ -24,6 +24,7 @@ interface WaStatus {
 interface IgConversation {
   id: string; name: string; igUserId: string; lastMessage: string;
   lastMessageTime: string | null; lastMessageFromMe: boolean; unreadCount: number;
+  isLead?: boolean;
 }
 interface IgMessage {
   id: string; body: string; fromMe: boolean; fromName: string;
@@ -655,28 +656,24 @@ export default function ConversationsPage() {
           {/* ── Instagram list ── */}
           {activeSource === "instagram" && (
             <>
-              {!igConnected && !loadingIgChats && (
-                <div className="flex flex-col items-center justify-center h-48 text-slate-400 px-6 text-center">
-                  <Instagram className="w-10 h-10 mb-3 opacity-40" />
-                  <p className="text-sm font-medium text-slate-500">Instagram not connected</p>
-                  <p className="text-xs mt-1">
-                    Go to{" "}
-                    <a href="/admin/settings?tab=integrations" className="text-pink-400 underline">
-                      Settings → Integrations
-                    </a>{" "}
-                    to connect.
-                  </p>
-                </div>
-              )}
-              {igConnected && loadingIgChats && !igConversations.length && (
+              {loadingIgChats && !igConversations.length && (
                 <div className="flex items-center justify-center h-32 text-slate-400">
-                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading DMs…
+                  <RefreshCw className="w-4 h-4 animate-spin mr-2" />Loading…
                 </div>
               )}
-              {igConnected && !loadingIgChats && filteredIgConvs.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-48 text-slate-400">
+              {!loadingIgChats && filteredIgConvs.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 px-6 text-center">
                   <MessageSquare className="w-10 h-10 mb-3 opacity-40" />
-                  <p className="text-sm">No DMs found</p>
+                  <p className="text-sm font-medium text-slate-500">No conversations found</p>
+                  {!igConnected && (
+                    <p className="text-xs mt-1">
+                      Connect Instagram from{" "}
+                      <a href="/admin/settings?tab=integrations" className="text-pink-400 underline">
+                        Settings → Integrations
+                      </a>{" "}
+                      to see DMs.
+                    </p>
+                  )}
                 </div>
               )}
               {filteredIgConvs.map((conv) => (
@@ -691,6 +688,11 @@ export default function ConversationsPage() {
                     <div className="w-11 h-11 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white font-semibold text-base">
                       {conv.name?.[0]?.toUpperCase() || "?"}
                     </div>
+                    {(conv as { isLead?: boolean }).isLead && (
+                      <span className="absolute -bottom-0.5 -right-0.5 px-1.5 py-0.5 bg-green-500 rounded-full text-[9px] text-white font-bold">
+                        LEAD
+                      </span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
@@ -1024,9 +1026,11 @@ export default function ConversationsPage() {
             </p>
             <p className="text-sm text-slate-400 mt-1 max-w-xs">
               {activeSource === "instagram"
-                ? igConnected
+                ? igConversations.length > 0
                   ? "Select a conversation to start chatting"
-                  : "Connect Instagram from Settings → Integrations"
+                  : igConnected
+                  ? "No conversations yet"
+                  : "Showing leads from database. Connect Instagram from Settings → Integrations to see DMs."
                 : activeSource === "facebook"
                 ? fbConnected
                   ? "Select a conversation to start chatting"

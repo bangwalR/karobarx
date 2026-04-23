@@ -22,6 +22,63 @@ export async function GET(
   const cursor = req.nextUrl.searchParams.get("cursor") || null;
 
   const supabase = createAdminClient();
+  
+  // Check if this is a lead conversation (starts with "lead_")
+  if (conversationId.startsWith("lead_")) {
+    const leadId = conversationId.replace("lead_", "");
+    
+    // Fetch lead details
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("id", leadId)
+      .single();
+    
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found", messages: [] }, { status: 404 });
+    }
+    
+    // Clean up the notes field - remove "Last message:" prefix and quotes
+    let cleanMessage = lead.notes || "No conversation history available for this lead yet.";
+    
+    // Remove "Last message:" prefix (case insensitive)
+    cleanMessage = cleanMessage.replace(/^Last message:\s*/i, '');
+    
+    // Remove surrounding quotes if present
+    cleanMessage = cleanMessage.replace(/^["'](.*)["']$/, '$1');
+    
+    // For leads, show a message from YOUR side (the business)
+    const messages = [
+      {
+        id: "lead-msg-1",
+        body: cleanMessage,
+        fromMe: true, // Changed to true - this is YOUR message to the lead
+        fromName: "You",
+        type: "chat",
+        hasMedia: false,
+        mediaUrl: null,
+        timestamp: lead.last_contacted_at || lead.created_at,
+        ack: 3,
+      }
+    ];
+    
+    return NextResponse.json({
+      messages,
+      nextCursor: null,
+      hasMore: false,
+      page: "latest",
+      isLead: true,
+      leadInfo: {
+        name: lead.name,
+        username: lead.platform_username,
+        status: lead.status,
+        source: lead.source,
+        tags: lead.tags,
+      }
+    });
+  }
+  
+  // For real Instagram conversations, use the Graph API
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id")

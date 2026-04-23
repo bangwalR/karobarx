@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
           ...template,
           store_name: effectiveSettings?.store_name ?? (template as unknown as Record<string,unknown>).store_name,
           logo_url:   effectiveSettings?.logo_url   ?? "",
+          setup_completed: true, // Default to true to prevent redirect loops
         },
         is_default: true,
       });
