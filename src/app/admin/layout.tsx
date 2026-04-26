@@ -10,7 +10,7 @@ import {
   ShoppingCart, 
   MessageSquare, 
   Settings,
-    LogOut,
+  LogOut,
   Search,
   Menu,
   X,
@@ -25,6 +25,7 @@ import {
   Calendar,
   Bot,
   BarChart2,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,6 +96,7 @@ export default function AdminLayout({
     base.push({ name: "Inquiries", href: "/admin/inquiries",    icon: MessageSquare });
     base.push({ name: "Calendar",  href: "/admin/calendar",     icon: Calendar });
     base.push({ name: "Telegram",  href: "/admin/telegram",     icon: Bot });
+    base.push({ name: "AI Assistant", href: "/admin/ai-assistant", icon: Sparkles });
     base.push({ name: "Analytics", href: "/admin/analytics",    icon: BarChart2 });
     base.push({ name: "Settings",  href: "/admin/settings",     icon: Settings });
     return base;

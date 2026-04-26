@@ -30,48 +30,67 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${siteUrl}/api/social/instagram/callback`;
 
   try {
-    // ── Step 1: Exchange code → short-lived token ──────────────────────────
-    const tokenRes = await fetch("https://api.instagram.com/oauth/access_token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        grant_type: "authorization_code",
-        redirect_uri: redirectUri,
-        code,
-      }),
-    });
+    // ── Step 1: Exchange code → access token (Facebook) ──────────────────────────
+    const tokenUrl = new URL("https://graph.facebook.com/v18.0/oauth/access_token");
+    tokenUrl.searchParams.set("client_id", appId);
+    tokenUrl.searchParams.set("client_secret", appSecret);
+    tokenUrl.searchParams.set("redirect_uri", redirectUri);
+    tokenUrl.searchParams.set("code", code);
+
+    const tokenRes = await fetch(tokenUrl.toString());
     const tokenData = await tokenRes.json();
 
-    // Instagram returns an array when data wrapper is present
-    const tokenEntry = Array.isArray(tokenData) ? tokenData[0] : tokenData;
-    const shortToken: string = tokenEntry?.access_token;
-    const igUserId: string = String(tokenEntry?.user_id || "");
-
-    if (!shortToken) {
-      console.error("[IG callback] Short-lived token error:", tokenData);
+    if (!tokenData.access_token) {
+      console.error("[IG callback] Token exchange error:", tokenData);
       return NextResponse.redirect(`${settingsUrl}&ig_error=token_exchange_failed`);
     }
 
-    // ── Step 2: Exchange → long-lived token (60 days) ──────────────────────
-    const longRes = await fetch(
-      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${encodeURIComponent(shortToken)}`
+    const accessToken = tokenData.access_token;
+
+    // ── Step 2: Get Facebook Pages ──────────────────────────────────────────
+    const pagesRes = await fetch(
+      `https://graph.facebook.com/v18.0/me/accounts?access_token=${encodeURIComponent(accessToken)}`
     );
-    const longData = await longRes.json();
-    const accessToken: string = longData.access_token || shortToken;
-    const expiresIn: number = longData.expires_in || 3600;
+    const pagesData = await pagesRes.json();
+
+    if (!pagesData.data || pagesData.data.length === 0) {
+      return NextResponse.redirect(`${settingsUrl}&ig_error=no_pages_found`);
+    }
+
+    // Use the first page (you can add UI to select if multiple pages)
+    const page = pagesData.data[0];
+    const pageAccessToken = page.access_token;
+    const pageId = page.id;
+
+    // ── Step 3: Get Instagram Business Account connected to this page ──────
+    const igAccountRes = await fetch(
+      `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${encodeURIComponent(pageAccessToken)}`
+    );
+    const igAccountData = await igAccountRes.json();
+
+    if (!igAccountData.instagram_business_account) {
+      return NextResponse.redirect(`${settingsUrl}&ig_error=no_instagram_business_account`);
+    }
+
+    const igBusinessAccountId = igAccountData.instagram_business_account.id;
+
+    // ── Step 4: Get Instagram username ──────────────────────────────────────
+    const igProfileRes = await fetch(
+      `https://graph.facebook.com/v18.0/${igBusinessAccountId}?fields=username,id&access_token=${encodeURIComponent(pageAccessToken)}`
+    );
+    const igProfileData = await igProfileRes.json();
+    const username = igProfileData.username || "instagram_user";
+
+    // ── Step 5: Exchange for long-lived token (60 days) ────────────────────
+    const longTokenRes = await fetch(
+      `https://graph.facebook.com/v18.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(pageAccessToken)}`
+    );
+    const longTokenData = await longTokenRes.json();
+    const longLivedToken = longTokenData.access_token || pageAccessToken;
+    const expiresIn = longTokenData.expires_in || 5184000; // 60 days default
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-    // ── Step 3: Get username from /me ──────────────────────────────────────
-    const meRes = await fetch(
-      `https://graph.instagram.com/v25.0/me?fields=user_id,username&access_token=${encodeURIComponent(accessToken)}`
-    );
-    const meData = await meRes.json();
-    const username: string = meData.username || "instagram_user";
-    const userId: string = meData.user_id || igUserId;
-
-    // ── Step 4: Upsert social_connections ─────────────────────────────────
+    // ── Step 6: Upsert social_connections ─────────────────────────────────
     const supabase = createAdminClient();
     const { data: existing } = await supabase
       .from("social_connections")
@@ -81,14 +100,15 @@ export async function GET(req: NextRequest) {
 
     const row = {
       platform: "instagram",
-      account_id: userId,
+      account_id: igBusinessAccountId,
       account_name: username,
-      access_token: accessToken,
+      access_token: longLivedToken,
       token_expires_at: expiresAt,
-      instagram_business_id: userId,
+      instagram_business_id: igBusinessAccountId,
       is_connected: true,
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      metadata: { page_id: pageId, page_name: page.name },
     };
 
     if (existing) {
