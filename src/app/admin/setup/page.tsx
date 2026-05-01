@@ -269,7 +269,10 @@ function SetupWizard() {
           ai_auto_reply: selectedTemplate.enable_whatsapp_ai,
         }),
       });
-      if (!settingsRes.ok) throw new Error("Failed to save settings");
+      if (!settingsRes.ok) {
+        const settingsErr = await settingsRes.json().catch(() => ({}));
+        throw new Error(settingsErr.error || `Failed to save settings (${settingsRes.status})`);
+      }
 
       // Create admin user only on first-time setup (not from_signup, not new profile)
       if (!isNewProfile && !isFromSignup && adminAccount.username && adminAccount.password) {

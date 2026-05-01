@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { auth } from "@/auth";
+import { normalizeRole } from "@/lib/permissions";
 import { NextResponse } from "next/server";
 
 /**
@@ -21,10 +22,22 @@ export async function POST() {
     }
 
     let profileId: string | null = session.user.profile_id ?? null;
+    const role = normalizeRole(session.user.role);
+    const supabase = await createClient();
+
+    if (!profileId && role === "super_admin") {
+      const { data: firstProfile } = await supabase
+        .from("business_config")
+        .select("id, setup_completed")
+        .order("setup_completed", { ascending: false })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      profileId = firstProfile?.id ?? null;
+    }
 
     if (!profileId) {
-      const supabase = await createClient();
-
       // Try to find a business_config owned by this admin user
       // Prioritize completed profiles over incomplete ones
       const { data: owned } = await supabase
@@ -39,11 +52,13 @@ export async function POST() {
       if (owned?.id) {
         profileId = owned.id;
 
-        // Persist the link so future logins skip this lookup
-        await supabase
-          .from("admin_users")
-          .update({ profile_id: profileId })
-          .eq("id", session.user.id);
+        if (role !== "super_admin") {
+          // Persist the link so future logins skip this lookup
+          await supabase
+            .from("admin_users")
+            .update({ profile_id: profileId })
+            .eq("id", session.user.id);
+        }
       }
     }
 

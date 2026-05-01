@@ -26,6 +26,7 @@ import {
   Bot,
   BarChart2,
   Sparkles,
+  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useBusinessConfig } from "@/contexts/BusinessContext";
 import NotificationButton from "@/components/admin/notification-button";
+import { hasPermission } from "@/lib/permissions";
 
 interface Profile {
   id: string;
@@ -53,9 +55,9 @@ export default function AdminLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileDropOpen, setProfileDropOpen] = useState(false);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profileSwitchPreviewId, setProfileSwitchPreviewId] = useState<string | null>(null);
   const { config: bizConfig, refreshConfig, isLoading: configLoading } = useBusinessConfig();
-  const isSetupComplete = (bizConfig as { setup_completed?: boolean }).setup_completed ?? true;
+  const activeProfileId = profileSwitchPreviewId ?? bizConfig.id ?? session?.user?.profile_id ?? null;
 
   // Disable browser back button while logged in to admin
   useEffect(() => {
@@ -83,24 +85,30 @@ export default function AdminLayout({
 
   // Dynamic nav built from bizConfig
   const navigation = useMemo(() => {
-    const base: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string }[] = [
-      { name: "Dashboard",                          href: "/admin",                 icon: LayoutDashboard },
-      { name: `${bizConfig.product_name_plural}`,   href: "/admin/inventory",       icon: Package },
-      { name: "Customers",                          href: "/admin/customers",       icon: Users },
+    const role = session?.user?.role;
+    const permissions = session?.user?.permissions;
+    const base: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string; module: string }[] = [
+      { name: "Dashboard",                          href: "/admin",                 icon: LayoutDashboard, module: "dashboard" },
+      { name: `${bizConfig.product_name_plural}`,   href: "/admin/inventory",       icon: Package, module: "inventory" },
+      { name: "Customers",                          href: "/admin/customers",       icon: Users, module: "customers" },
     ];
-    if (bizConfig.enable_leads_module)    base.push({ name: "Leads",     href: "/admin/leads",         icon: UserPlus });
-    if (bizConfig.enable_marketing_module) base.push({ name: "Marketing", href: "/admin/marketing",     icon: Zap });
-    base.push({ name: "Orders",    href: "/admin/orders",       icon: ShoppingCart });
-    base.push({ name: "Conversations", href: "/admin/conversations", icon: MessageSquare });
-    base.push({ name: "Communities", href: "/admin/communities", icon: Users });
-    base.push({ name: "Inquiries", href: "/admin/inquiries",    icon: MessageSquare });
-    base.push({ name: "Calendar",  href: "/admin/calendar",     icon: Calendar });
-    base.push({ name: "Telegram",  href: "/admin/telegram",     icon: Bot });
-    base.push({ name: "AI Assistant", href: "/admin/ai-assistant", icon: Sparkles });
-    base.push({ name: "Analytics", href: "/admin/analytics",    icon: BarChart2 });
-    base.push({ name: "Settings",  href: "/admin/settings",     icon: Settings });
-    return base;
-  }, [bizConfig]);
+    if (bizConfig.enable_leads_module)    base.push({ name: "Leads",     href: "/admin/leads",         icon: UserPlus, module: "leads" });
+    if (bizConfig.enable_marketing_module) base.push({ name: "Marketing", href: "/admin/marketing",     icon: Zap, module: "marketing" });
+    base.push({ name: "Orders",    href: "/admin/orders",       icon: ShoppingCart, module: "orders" });
+    base.push({ name: "Conversations", href: "/admin/conversations", icon: MessageSquare, module: "conversations" });
+    base.push({ name: "Communities", href: "/admin/communities", icon: Users, module: "communities" });
+    base.push({ name: "Inquiries", href: "/admin/inquiries",    icon: MessageSquare, module: "inquiries" });
+    base.push({ name: "Calendar",  href: "/admin/calendar",     icon: Calendar, module: "calendar" });
+    base.push({ name: "Telegram",  href: "/admin/telegram",     icon: Bot, module: "telegram" });
+    base.push({ name: "AI Assistant", href: "/admin/ai-assistant", icon: Sparkles, module: "ai_assistant" });
+    base.push({ name: "Analytics", href: "/admin/analytics",    icon: BarChart2, module: "analytics" });
+    base.push({ name: "Appearance", href: "/admin/appearance",  icon: Palette,   module: "settings" });
+    if (hasPermission(role, "users", "read", permissions) && !hasPermission(role, "settings", "read", permissions)) {
+      base.push({ name: "Team", href: "/admin/settings?tab=team", icon: Users, module: "users" });
+    }
+    base.push({ name: "Settings",  href: "/admin/settings",     icon: Settings, module: "settings" });
+    return base.filter((item) => hasPermission(role, item.module, "read", permissions));
+  }, [bizConfig, session?.user?.role, session?.user?.permissions]);
 
   // Load profiles list for the switcher
   useEffect(() => {
@@ -110,11 +118,6 @@ export default function AdminLayout({
       .then(json => { if (json.success) setProfiles(json.profiles); })
       .catch(() => {});
   }, [status]);
-
-  // Read active profile from cookie hint stored in BusinessContext
-  useEffect(() => {
-    if (bizConfig.id) setActiveProfileId(bizConfig.id);
-  }, [bizConfig.id]);
 
   // Redirect to login if unauthenticated
   useEffect(() => {
@@ -174,7 +177,7 @@ export default function AdminLayout({
       body: JSON.stringify({ profile_id: profileId }),
     });
     if (res.ok) {
-      setActiveProfileId(profileId);
+      setProfileSwitchPreviewId(profileId);
       await refreshConfig();
       router.refresh();
     }
@@ -233,7 +236,7 @@ export default function AdminLayout({
                       className="w-9 h-9 rounded-lg object-cover"
                     />
                   ) : (
-                    <div className="bg-violet-600 p-2 rounded-lg">
+                    <div className="p-2 rounded-lg" style={{ background: "var(--color-primary)" }}>
                       <Store className="w-5 h-5 text-white" />
                     </div>
                   )}
@@ -242,7 +245,7 @@ export default function AdminLayout({
                   <span className="text-sm font-semibold text-slate-900 truncate block">
                     {(bizConfig as { store_name?: string }).store_name || bizConfig.display_name || "My Store"}
                   </span>
-                  <span className="block text-[10px] text-violet-600 uppercase tracking-wider font-medium">CRM Dashboard</span>
+                  <span className="block text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--color-primary)" }}>CRM Dashboard</span>
                 </div>
               </Link>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 hover:bg-white/10 rounded-lg">
@@ -307,20 +310,20 @@ export default function AdminLayout({
                 <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)}>
                   <div className={`group flex items-center justify-between px-3 py-2.5 rounded-lg transition-all duration-150 ${
                     isActive 
-                      ? 'bg-violet-50 text-violet-700' 
+                      ? 'bg-[color:var(--color-primary)]/10 text-[color:var(--color-primary)]' 
                       : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   }`}>
                     <div className="flex items-center gap-3">
-                      <item.icon className={`w-5 h-5 ${isActive ? 'text-violet-600' : ''}`} />
+                      <item.icon className={`w-5 h-5 ${isActive ? 'text-[color:var(--color-primary)]' : ''}`} />
                       <span className="font-medium">{item.name}</span>
                     </div>
                     {item.badge && (
-                      <Badge className="bg-violet-600 text-white border-0 text-xs">
+                      <Badge className="bg-[color:var(--color-primary)] text-white border-0 text-xs">
                         {item.badge}
                       </Badge>
                     )}
                     {isActive && (
-                      <ChevronRight className="w-4 h-4 text-violet-500" />
+                      <ChevronRight className="w-4 h-4 text-[color:var(--color-primary)]" />
                     )}
                   </div>
                 </Link>
@@ -334,7 +337,7 @@ export default function AdminLayout({
             {adminUser && (
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-violet-600 flex items-center justify-center text-white font-semibold text-sm">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-sm" style={{ background: "var(--color-primary)" }}>
                     {(adminUser.full_name || adminUser.username).charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -383,7 +386,7 @@ export default function AdminLayout({
               <NotificationButton />
               
               <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
-                <div className="w-9 h-9 rounded-full bg-violet-600 flex items-center justify-center text-sm font-bold text-white">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white" style={{ background: "var(--color-primary)" }}>
                   {(adminUser?.full_name || adminUser?.username || "A").charAt(0).toUpperCase()}
                 </div>
                 <div className="hidden sm:block">

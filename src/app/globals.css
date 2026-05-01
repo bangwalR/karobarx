@@ -140,13 +140,13 @@
 
 /* Selection */
 ::selection {
-  background: rgba(124, 58, 237, 0.15);
+  background: rgb(var(--color-primary-rgb) / 0.15);
   color: #0f172a;
 }
 
 /* Focus States */
 *:focus-visible {
-  outline: 2px solid #7c3aed;
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
@@ -194,16 +194,17 @@
   text-shadow: none !important;
 }
 
-/* btn-futuristic → violet solid button */
+/* btn-futuristic → primary solid button */
 .btn-futuristic {
-  background: #7c3aed;
+  background: var(--color-primary);
   color: #ffffff;
   transition: background 0.2s ease;
 }
 
 .btn-futuristic:hover {
-  background: #6d28d9;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  background: var(--color-primary);
+  filter: brightness(0.9);
+  box-shadow: 0 4px 12px rgb(var(--color-primary-rgb) / 0.25);
   transform: translateY(-1px);
 }
 
@@ -248,33 +249,34 @@
   border-color: rgba(0, 0, 0, 0.08) !important;
 }
 
-/* Orange primary → violet */
+/* Orange primary → theme primary */
 .text-orange-500 {
-  color: #7c3aed !important;
+  color: var(--color-primary) !important;
 }
 .bg-orange-500 {
-  background-color: #7c3aed !important;
+  background-color: var(--color-primary) !important;
 }
 .border-orange-500, .border-orange-500\/50 {
-  border-color: #7c3aed !important;
+  border-color: var(--color-primary) !important;
 }
 .from-orange-500 {
-  --tw-gradient-from: #7c3aed !important;
+  --tw-gradient-from: var(--color-primary) !important;
 }
 .to-red-600, .to-red-500 {
-  --tw-gradient-to: #6d28d9 !important;
+  --tw-gradient-to: var(--color-primary) !important;
+  filter: brightness(0.85);
 }
 .text-orange-400 {
-  color: #8b5cf6 !important;
+  color: rgb(var(--color-primary-rgb) / 0.8) !important;
 }
 .bg-orange-500\/10, .bg-orange-500\/20 {
-  background-color: rgba(124, 58, 237, 0.08) !important;
+  background-color: rgb(var(--color-primary-rgb) / 0.08) !important;
 }
 .border-orange-500\/20 {
-  border-color: rgba(124, 58, 237, 0.2) !important;
+  border-color: rgb(var(--color-primary-rgb) / 0.2) !important;
 }
 .hover\:bg-orange-500\/10:hover {
-  background-color: rgba(124, 58, 237, 0.08) !important;
+  background-color: rgb(var(--color-primary-rgb) / 0.08) !important;
 }
 
 /* Chart tooltip */
@@ -391,4 +393,52 @@
 .to-violet-700 {
   --tw-gradient-to: var(--color-primary) !important;
   filter: brightness(0.9);
+}
+
+/* ── Additional dynamic theme overrides ── */
+
+/* hover:bg-violet-50 */
+.hover\:bg-violet-50:hover {
+  background-color: rgb(var(--color-primary-rgb) / 0.08) !important;
+}
+
+/* focus:border-violet-500 */
+.focus\:border-violet-500:focus {
+  border-color: var(--color-primary) !important;
+}
+
+/* focus:ring-violet-500 */
+.focus\:ring-violet-500:focus {
+  --tw-ring-color: var(--color-primary) !important;
+}
+
+/* text-violet-200 (used in chat bubbles etc) */
+.text-violet-200 {
+  color: rgb(var(--color-primary-rgb) / 0.6) !important;
+}
+
+/* bg-violet-100 */
+.bg-violet-100 {
+  background-color: rgb(var(--color-primary-rgb) / 0.12) !important;
+}
+
+/* Loader spinner */
+.text-violet-600 {
+  color: var(--color-primary) !important;
+}
+
+/* Dashboard welcome banner gradient */
+.from-violet-50 {
+  --tw-gradient-from: rgb(var(--color-primary-rgb) / 0.06) !important;
+}
+.to-indigo-50 {
+  --tw-gradient-to: rgb(var(--color-primary-rgb) / 0.1) !important;
+}
+.border-violet-200 {
+  border-color: rgb(var(--color-primary-rgb) / 0.25) !important;
+}
+
+/* Appearance page active preset ring */
+.border-slate-900 {
+  border-color: var(--color-primary) !important;
 }

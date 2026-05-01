@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
-async function getConnection() {
+async function getConnection(profileId: string) {
   const supabase = createAdminClient();
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id, account_name")
+    .eq("profile_id", profileId)
     .eq("platform", "instagram")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })
@@ -44,10 +46,11 @@ async function fetchPages(
 // GET /api/social/instagram/conversations?since=ISO_TIMESTAMP
 // `since` enables incremental sync — only returns conversations updated after that time
 export async function GET(req: NextRequest) {
-  const conn = await getConnection();
-  
-  // Get active profile ID from cookie for security
-  const profileId = req.cookies.get("active_profile_id")?.value;
+  const guard = await requireTenantContext(req, { module: "conversations", action: "read" });
+  if (!guard.ok) return guard.response;
+
+  const profileId = guard.context.profileId!;
+  const conn = await getConnection(profileId);
   
   // Even if Instagram is not connected, we can still show leads from database
   const supabase = createAdminClient();
@@ -60,6 +63,7 @@ export async function GET(req: NextRequest) {
   const { data: leads, error: leadsError } = await supabase
     .from("leads")
     .select("id, name, platform_user_id, platform_username, source, profile_id, created_at, updated_at, last_contacted_at")
+    .eq("profile_id", profileId)
     .eq("source", "instagram")
     .not("platform_user_id", "is", null)
     .gte("updated_at", sixtyDaysAgo.toISOString())

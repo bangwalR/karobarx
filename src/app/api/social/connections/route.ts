@@ -1,15 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireTenantContext } from "@/lib/tenant";
 import { NextRequest, NextResponse } from "next/server";
 
 // Social connections API - Get all connections or specific platform
 export async function GET(request: NextRequest) {
+  const guard = await requireTenantContext(request, { module: "settings", action: "read" });
+  if (!guard.ok) return guard.response;
+
   const supabase = await createClient();
   const searchParams = request.nextUrl.searchParams;
   const platform = searchParams.get("platform");
+  const profileId = guard.context.profileId!;
 
   let query = supabase
     .from("social_connections")
     .select("*")
+    .eq("profile_id", profileId)
     .order("created_at", { ascending: false });
 
   if (platform) {
@@ -35,8 +41,12 @@ export async function GET(request: NextRequest) {
 
 // Save or update a social connection
 export async function POST(request: NextRequest) {
+  const guard = await requireTenantContext(request, { module: "settings", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const supabase = await createClient();
   const body = await request.json();
+  const profileId = guard.context.profileId!;
 
   const {
     platform,
@@ -59,11 +69,13 @@ export async function POST(request: NextRequest) {
   const { data: existing } = await supabase
     .from("social_connections")
     .select("id")
+    .eq("profile_id", profileId)
     .eq("platform", platform)
-    .single();
+    .maybeSingle();
 
   const connectionData = {
     platform,
+    profile_id: profileId,
     account_id,
     account_name,
     access_token,
@@ -110,9 +122,13 @@ export async function POST(request: NextRequest) {
 
 // Disconnect a social account
 export async function DELETE(request: NextRequest) {
+  const guard = await requireTenantContext(request, { module: "settings", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const supabase = await createClient();
   const { searchParams } = new URL(request.url);
   const platform = searchParams.get("platform");
+  const profileId = guard.context.profileId!;
 
   if (!platform) {
     return NextResponse.json({ error: "Platform is required" }, { status: 400 });
@@ -126,6 +142,7 @@ export async function DELETE(request: NextRequest) {
       is_connected: false,
       updated_at: new Date().toISOString(),
     })
+    .eq("profile_id", profileId)
     .eq("platform", platform);
 
   if (error) {

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getProfileId } from "@/lib/profile";
+import { requireTenantContext } from "@/lib/tenant";
 
 // GET all customers with stats
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "read" });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     
@@ -13,14 +16,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    const profileId = getProfileId(request);
-
-    // CRITICAL: Require profileId for data access
-    if (!profileId) {
-      return NextResponse.json({ 
-        error: "No active profile. Please log in again." 
-      }, { status: 401 });
-    }
+    const profileId = guard.context.profileId!;
 
     let query = supabase
       .from("customers")
@@ -76,11 +72,14 @@ export async function GET(request: NextRequest) {
 // POST - Create new customer
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "write" });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
     const body = await request.json();
 
     const { name, email, phone, whatsapp_number, address, city, status, notes, custom_data } = body;
-    const profileId = getProfileId(request);
+    const profileId = guard.context.profileId!;
 
     if (!name || !phone) {
       return NextResponse.json(
@@ -99,7 +98,7 @@ export async function POST(request: NextRequest) {
       status: status || "new",
       notes: notes || null,
       custom_data: custom_data || {},
-      ...(profileId ? { profile_id: profileId } : {}),
+      profile_id: profileId,
     };
 
     const { data, error } = await supabase

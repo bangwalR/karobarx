@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
 // POST /api/leads/add-instagram
 // Add Instagram leads manually via API
 // Body: { leads: [{ name, username, message, platform_user_id }] }
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantContext(req, { module: "leads", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const supabase = createAdminClient();
-  
-  // Get profile_id from cookie
-  const profileId = req.cookies.get("active_profile_id")?.value;
+  const profileId = guard.context.profileId!;
   
   try {
     const body = await req.json();
@@ -39,9 +41,10 @@ export async function POST(req: NextRequest) {
       const { data: existing } = await supabase
         .from("leads")
         .select("id")
+        .eq("profile_id", profileId)
         .eq("platform_user_id", platform_user_id)
         .eq("source", "instagram")
-        .single();
+        .maybeSingle();
       
       if (existing) {
         // Update existing lead
@@ -54,7 +57,8 @@ export async function POST(req: NextRequest) {
             updated_at: new Date().toISOString(),
             last_contacted_at: new Date().toISOString(),
           })
-          .eq("id", existing.id);
+          .eq("id", existing.id)
+          .eq("profile_id", profileId);
         
         if (error) {
           results.errors.push(`Error updating ${name}: ${error.message}`);
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
             status: "new",
             tags: ["instagram-dm"],
             notes: message || null,
-            profile_id: profileId || null,
+            profile_id: profileId,
             last_contacted_at: new Date().toISOString(),
             metadata: { added_via: "api" },
           });

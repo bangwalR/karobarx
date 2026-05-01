@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -84,13 +83,13 @@ interface Props {
   stats: Stats | null;
 }
 
-export default function LeafletMap({ leads, stats }: Props) {
+export default function LeafletMap({ leads }: Props) {
   return (
-    <div className="relative">
+    <div className="relative h-full min-h-[440px]">
       <MapContainer
         center={BUSINESS_CENTER}
         zoom={11}
-        style={{ height: "440px", width: "100%", background: "#1a1a2e" }}
+        style={{ height: "100%", width: "100%", background: "#1a1a2e" }}
         className="z-0"
       >
         <TileLayer

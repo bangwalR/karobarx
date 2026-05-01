@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Insert the new admin user — owners get super_admin, otherwise staff
-    const ownerPermissions = {
+    const adminPermissions = {
       dashboard: { read: true },
       inventory: { read: true, write: true, delete: true },
       customers: { read: true, write: true, delete: true },
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
       leads: { read: true, write: true, delete: true },
       marketing: { read: true, write: true, delete: true },
       settings: { read: true, write: true },
+      users: { read: true, write: true, delete: true },
     };
     const staffPermissions = {
       dashboard: { read: true },
@@ -82,9 +83,9 @@ export async function POST(req: NextRequest) {
         email,
         password_hash: passwordHash,
         full_name,
-        role: is_owner ? "super_admin" : "staff",
+        role: is_owner ? "admin" : "staff",
         is_active: true,
-        permissions: is_owner ? ownerPermissions : staffPermissions,
+        permissions: is_owner ? adminPermissions : staffPermissions,
       })
       .select("id, username, email, full_name, role")
       .single();

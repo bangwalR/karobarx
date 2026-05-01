@@ -1,15 +1,21 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
 // POST /api/leads/sync-instagram
 // Fetches all Instagram DM conversations and upserts participants as leads
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const guard = await requireTenantContext(request, { module: "leads", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const supabase = createAdminClient();
+  const profileId = guard.context.profileId!;
 
   // 1. Get Instagram connection
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id, account_name")
+    .eq("profile_id", profileId)
     .eq("platform", "instagram")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })
@@ -65,6 +71,7 @@ export async function POST() {
     const { data: existing } = await supabase
       .from("leads")
       .select("id, last_contacted_at")
+      .eq("profile_id", profileId)
       .eq("platform_user_id", other.id)
       .eq("source", "instagram")
       .limit(1);
@@ -88,7 +95,8 @@ export async function POST() {
       await supabase
         .from("leads")
         .update(updateData)
-        .eq("id", existing[0].id);
+        .eq("id", existing[0].id)
+        .eq("profile_id", profileId);
       skipped++;
     } else {
       // Insert new lead
@@ -102,6 +110,7 @@ export async function POST() {
         notes: lastMsg?.message ? `Last message: "${lastMsg.message.slice(0, 200)}"` : null,
         last_contacted_at: conv.updated_time || new Date().toISOString(),
         metadata: { conversation_id: conv.id, ig_account: conn.account_name },
+        profile_id: profileId,
       }]);
 
       if (!insertError) synced++;

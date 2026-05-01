@@ -105,6 +105,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
 
     loadTheme();
+
+    // Re-apply theme whenever the appearance page saves it
+    const handleThemeChange = () => { loadTheme(); };
+    window.addEventListener("theme-updated", handleThemeChange);
+    return () => window.removeEventListener("theme-updated", handleThemeChange);
   }, []);
 
   // Apply theme colors to DOM using CSS variables

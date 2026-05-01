@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Users,
   Search,
@@ -19,9 +19,7 @@ import {
   Tag,
   Globe,
   MessageCircle,
-  RefreshCw,
   Map,
-  List,
   Zap,
   Building,
   Briefcase,
@@ -36,8 +34,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   Dialog,
@@ -114,6 +110,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
   contacted: { label: "Contacted", color: "bg-yellow-500/20 text-yellow-400" },
   interested: { label: "Interested", color: "bg-green-500/20 text-green-400" },
   converted: { label: "Converted", color: "bg-purple-500/20 text-purple-400" },
+  abandoned: { label: "Abandoned", color: "bg-orange-500/20 text-orange-400" },
   not_interested: { label: "Not Interested", color: "bg-gray-500/20 text-gray-400" },
   spam: { label: "Spam", color: "bg-red-500/20 text-red-400" },
 };
@@ -128,19 +125,15 @@ const sourceConfig: Record<string, { label: string; icon: React.ElementType; col
 
 function LeadsPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterSource, setFilterSource] = useState<string>("all");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [saving, setSaving] = useState(false);
   const [syncingIg, setSyncingIg] = useState(false);
-  const [view, setView] = useState<"list" | "map">("list");
 
   // Hunter.io state
   const [hunterForm, setHunterForm] = useState({ first_name: "", last_name: "", domain: "", company: "" });
@@ -166,8 +159,6 @@ function LeadsPageContent() {
     try {
       const params = new URLSearchParams();
       if (search) params.append("search", search);
-      if (filterSource !== "all") params.append("source", filterSource);
-      if (filterStatus !== "all") params.append("status", filterStatus);
 
       const res = await fetch(`/api/leads?${params}`);
       const data = await res.json();
@@ -183,7 +174,7 @@ function LeadsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterSource, filterStatus]);
+  }, [search]);
 
   useEffect(() => {
     fetchLeads();
@@ -249,16 +240,9 @@ function LeadsPageContent() {
     }
 
     try {
-      // Create customer
-      const res = await fetch("/api/customers", {
+      const res = await fetch(`/api/leads/${lead.id}/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: lead.name || "Unknown",
-          phone: lead.phone,
-          email: lead.email,
-          source: lead.source,
-        }),
       });
       const data = await res.json();
 
@@ -267,19 +251,7 @@ function LeadsPageContent() {
         return;
       }
 
-      // Update lead as converted
-      await fetch("/api/leads", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: lead.id,
-          status: "converted",
-          customer_id: data.customer.id,
-          converted_at: new Date().toISOString(),
-        }),
-      });
-
-      toast.success("Lead converted to customer!");
+      toast.success(data.idempotent ? "Lead already converted" : "Lead converted to customer!");
       fetchLeads();
       setShowDetailModal(false);
     } catch {
@@ -459,26 +431,6 @@ function LeadsPageContent() {
           <p className="text-gray-400">Manage leads from Instagram, Facebook & more</p>
         </div>
         <div className="flex gap-2">
-          {/* View toggle */}
-          <div className="flex rounded-xl overflow-hidden border border-gray-700">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setView("list")}
-              className={`rounded-none px-3 ${view === "list" ? "bg-orange-500 text-white" : "text-gray-400 hover:bg-gray-800"}`}
-            >
-              <List className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setView("map")}
-              className={`rounded-none px-3 ${view === "map" ? "bg-orange-500 text-white" : "text-gray-400 hover:bg-gray-800"}`}
-            >
-              <Map className="w-4 h-4" />
-            </Button>
-          </div>
-
           <Button
             variant="outline"
             onClick={() => router.push("/admin/leads/messaging")}
@@ -508,81 +460,80 @@ function LeadsPageContent() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="glass-card border-gray-800">
+      <div className="sticky top-0 z-20 grid grid-cols-2 md:grid-cols-5 gap-3 py-2 bg-slate-50/95 backdrop-blur">
+        <Card className="glass-card border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-gray-800 rounded-lg">
-                <Users className="w-5 h-5 text-gray-400" />
+              <div className="w-11 h-11 rounded-xl bg-blue-500 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats?.total || 0}</p>
-                <p className="text-xs text-gray-400">Total Leads</p>
+                <p className="text-xl font-bold text-slate-900 leading-none">{stats?.total || 0}</p>
+                <p className="text-xs text-slate-400 mt-1">Total Leads</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-gray-800">
+        <Card className="glass-card border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/20 rounded-lg">
-                <UserPlus className="w-5 h-5 text-blue-400" />
+              <div className="w-11 h-11 rounded-xl bg-orange-500 flex items-center justify-center shrink-0">
+                <UserPlus className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats?.new || 0}</p>
-                <p className="text-xs text-gray-400">New</p>
+                <p className="text-xl font-bold text-slate-900 leading-none">{stats?.new || 0}</p>
+                <p className="text-xs text-slate-400 mt-1">New</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-gray-800">
+        <Card className="glass-card border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-pink-500/20 rounded-lg">
-                <Instagram className="w-5 h-5 text-pink-400" />
+              <div className="w-11 h-11 rounded-xl bg-pink-500 flex items-center justify-center shrink-0">
+                <Instagram className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats?.bySource?.instagram || 0}</p>
-                <p className="text-xs text-gray-400">Instagram</p>
+                <p className="text-xl font-bold text-slate-900 leading-none">{stats?.bySource?.instagram || 0}</p>
+                <p className="text-xs text-slate-400 mt-1">Instagram</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-gray-800">
+        <Card className="glass-card border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-600/20 rounded-lg">
-                <Facebook className="w-5 h-5 text-blue-500" />
+              <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
+                <Facebook className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats?.bySource?.facebook || 0}</p>
-                <p className="text-xs text-gray-400">Facebook</p>
+                <p className="text-xl font-bold text-slate-900 leading-none">{stats?.bySource?.facebook || 0}</p>
+                <p className="text-xs text-slate-400 mt-1">Facebook</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="glass-card border-gray-800">
+        <Card className="glass-card border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
-                <ArrowUpRight className="w-5 h-5 text-purple-400" />
+              <div className="w-11 h-11 rounded-xl bg-purple-500 flex items-center justify-center shrink-0">
+                <ArrowUpRight className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats?.converted || 0}</p>
-                <p className="text-xs text-gray-400">Converted</p>
+                <p className="text-xl font-bold text-slate-900 leading-none">{stats?.converted || 0}</p>
+                <p className="text-xs text-slate-400 mt-1">Converted</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
+        <div className="relative max-w-xl flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <Input
             placeholder="Search leads..."
@@ -591,36 +542,10 @@ function LeadsPageContent() {
             className="pl-10 bg-gray-900 border-gray-700"
           />
         </div>
-        <Select value={filterSource} onValueChange={setFilterSource}>
-          <SelectTrigger className="w-[150px] bg-gray-900 border-gray-700">
-            <SelectValue placeholder="Source" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
-            <SelectItem value="instagram">Instagram</SelectItem>
-            <SelectItem value="facebook">Facebook</SelectItem>
-            <SelectItem value="whatsapp">WhatsApp</SelectItem>
-            <SelectItem value="website">Website</SelectItem>
-            <SelectItem value="manual">Manual</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-[150px] bg-gray-900 border-gray-700">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="new">New</SelectItem>
-            <SelectItem value="contacted">Contacted</SelectItem>
-            <SelectItem value="interested">Interested</SelectItem>
-            <SelectItem value="converted">Converted</SelectItem>
-            <SelectItem value="not_interested">Not Interested</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
 
       {/* MAP VIEW */}
-      {view === "map" && (
+      {false && (
         <div className="glass-card rounded-2xl overflow-hidden">
           <div className="p-4 border-b border-gray-800 flex items-center justify-between">
             <h3 className="font-semibold flex items-center gap-2">
@@ -651,7 +576,9 @@ function LeadsPageContent() {
       )}
 
       {/* Leads List — only shown in list view */}
-      {view === "list" && (
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
+        <div className="h-[calc(100vh-310px)] min-h-[520px] overflow-y-auto pr-1">
+      {
         loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
@@ -674,11 +601,7 @@ function LeadsPageContent() {
               return (
                 <Card
                   key={lead.id}
-                  className="glass-card border-gray-800 hover:border-gray-700 cursor-pointer transition-all"
-                  onClick={() => {
-                    setSelectedLead(lead);
-                    setShowDetailModal(true);
-                  }}
+                  className="glass-card border-gray-800 hover:border-gray-700 transition-all"
                 >
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
@@ -761,8 +684,12 @@ function LeadsPageContent() {
               );
             })}
           </div>
-        )
-      )}
+        )}
+        </div>
+        <div className="h-[calc(100vh-310px)] min-h-[520px] overflow-hidden rounded-2xl border border-gray-800 bg-gray-950">
+          <LeafletMap leads={leads} stats={stats} />
+        </div>
+      </div>
 
       {/* Add Lead Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>

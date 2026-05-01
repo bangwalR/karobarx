@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
 // POST /api/social/facebook/send
 // Send a Messenger message to a recipient via the Page Access Token
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantContext(req, { module: "conversations", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const { recipientId, message } = await req.json();
   if (!recipientId || !message?.trim())
     return NextResponse.json({ error: "recipientId and message are required" }, { status: 400 });
@@ -12,6 +16,7 @@ export async function POST(req: NextRequest) {
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id, page_id")
+    .eq("profile_id", guard.context.profileId!)
     .eq("platform", "facebook")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })

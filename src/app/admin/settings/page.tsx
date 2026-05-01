@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Store,
   Bell,
@@ -69,6 +69,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSession } from "next-auth/react";
+import {
+  canAccessSettingsTab,
+  canWriteSettingsTab,
+  hasPermission,
+  normalizeRole,
+  ROLE_PERMISSIONS,
+  type AdminRole,
+  type PermissionAction,
+  type RolePermissionMap,
+} from "@/lib/permissions";
 
 
 interface Settings {
@@ -166,6 +177,7 @@ const tabs = [
   { id: "integrations", label: "Integrations", icon: Globe },
   { id: "security", label: "Security", icon: Shield },
   { id: "custom-fields", label: "Custom Fields", icon: Settings2 },
+  { id: "configuration", label: "Configuration", icon: Shield },
 ];
 
 const fieldTypes = [
@@ -201,6 +213,7 @@ interface TeamUser {
   phone: string | null;
   avatar_url: string | null;
   role: string;
+  profile_id: string | null;
   permissions: Record<string, Record<string, boolean>>;
   is_active: boolean;
   last_login_at: string | null;
@@ -208,9 +221,22 @@ interface TeamUser {
   created_at: string;
 }
 
+interface TeamProfile {
+  id: string;
+  display_name: string;
+  product_name_plural: string;
+}
+
 // TeamManagement Component
 function TeamManagement() {
+  const { data: session } = useSession();
+  const currentRole = normalizeRole(session?.user?.role);
+  const sessionPermissions = session?.user?.permissions as RolePermissionMap | undefined;
+  const canWriteUsers = hasPermission(currentRole, "users", "write", sessionPermissions);
+  const canDeleteUsers = hasPermission(currentRole, "users", "delete", sessionPermissions);
+  const isSuperAdmin = currentRole === "super_admin";
   const [users, setUsers] = useState<TeamUser[]>([]);
+  const [profiles, setProfiles] = useState<TeamProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -224,11 +250,14 @@ function TeamManagement() {
     full_name: "",
     phone: "",
     role: "staff",
+    profile_id: "",
     is_active: true,
   });
 
   useEffect(() => {
     fetchUsers();
+    if (currentRole === "super_admin") fetchProfiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchUsers = async () => {
@@ -246,6 +275,16 @@ function TeamManagement() {
     }
   };
 
+  const fetchProfiles = async () => {
+    try {
+      const res = await fetch("/api/profiles");
+      const data = await res.json();
+      if (data.profiles) setProfiles(data.profiles);
+    } catch {
+      toast.error("Failed to fetch accounts");
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       username: "",
@@ -254,13 +293,25 @@ function TeamManagement() {
       full_name: "",
       phone: "",
       role: "staff",
+      profile_id: profiles[0]?.id || "",
       is_active: true,
     });
   };
 
+  const allowedRoles = (() => {
+    if (currentRole === "super_admin") return ["super_admin", "admin", "manager", "staff"];
+    if (currentRole === "admin") return ["admin", "manager", "staff"];
+    if (currentRole === "manager") return ["staff"];
+    return [];
+  })();
+
   const handleAddUser = async () => {
     if (!formData.username || !formData.email || !formData.password || !formData.full_name) {
       toast.error("Please fill all required fields");
+      return;
+    }
+    if (isSuperAdmin && formData.role !== "super_admin" && !formData.profile_id) {
+      toast.error("Please select an account for this user");
       return;
     }
 
@@ -299,6 +350,7 @@ function TeamManagement() {
         full_name: formData.full_name,
         phone: formData.phone,
         role: formData.role,
+        profile_id: formData.profile_id || null,
         is_active: formData.is_active,
       };
 
@@ -376,6 +428,7 @@ function TeamManagement() {
       full_name: user.full_name,
       phone: user.phone || "",
       role: user.role,
+      profile_id: user.profile_id || "",
       is_active: user.is_active,
     });
     setShowEditModal(true);
@@ -400,13 +453,15 @@ function TeamManagement() {
           </h2>
           <p className="text-sm text-gray-400">Manage users and their access permissions</p>
         </div>
-        <Button
-          onClick={() => { resetForm(); setShowAddModal(true); }}
-          className="ml-4 bg-orange-500 hover:bg-orange-600"
-        >
-          <UserPlus className="w-4 h-4 mr-2" />
-          Add User
-        </Button>
+        {canWriteUsers && (
+          <Button
+            onClick={() => { resetForm(); setShowAddModal(true); }}
+            className="ml-4 bg-orange-500 hover:bg-orange-600"
+          >
+            <UserPlus className="w-4 h-4 mr-2" />
+            Add User
+          </Button>
+        )}
       </div>
 
       {/* Users List */}
@@ -416,10 +471,12 @@ function TeamManagement() {
             <Users className="w-12 h-12 mx-auto mb-4 text-gray-600" />
             <h3 className="text-lg font-semibold mb-2">No team members yet</h3>
             <p className="text-gray-400 mb-4">Add your first team member to get started</p>
-            <Button onClick={() => { resetForm(); setShowAddModal(true); }}>
-              <UserPlus className="w-4 h-4 mr-2" />
-              Add User
-            </Button>
+            {canWriteUsers && (
+              <Button onClick={() => { resetForm(); setShowAddModal(true); }}>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add User
+              </Button>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-gray-800">
@@ -462,6 +519,7 @@ function TeamManagement() {
                       "Never logged in"
                     )}
                   </div>
+                  {canWriteUsers && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -479,7 +537,7 @@ function TeamManagement() {
                           <><Eye className="w-4 h-4 mr-2" /> Activate</>
                         )}
                       </DropdownMenuItem>
-                      {user.role !== "super_admin" && (
+                      {canDeleteUsers && user.role !== "super_admin" && (
                         <DropdownMenuItem
                           onClick={() => handleDeleteUser(user)}
                           className="text-red-400"
@@ -489,6 +547,7 @@ function TeamManagement() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  )}
                 </div>
               </div>
             ))}
@@ -532,14 +591,33 @@ function TeamManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
+                    {allowedRoles.map((role) => (
+                      <SelectItem key={role} value={role}>{roleConfig[role]?.label || role}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {isSuperAdmin && formData.role !== "super_admin" && (
+              <div>
+                <Label>Account *</Label>
+                <Select
+                  value={formData.profile_id}
+                  onValueChange={(val) => setFormData({ ...formData, profile_id: val })}
+                >
+                  <SelectTrigger className="mt-1 bg-gray-900 border-gray-700">
+                    <SelectValue placeholder="Select account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.display_name || profile.product_name_plural}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Email *</Label>
               <Input
@@ -623,14 +701,33 @@ function TeamManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
+                    {allowedRoles.map((role) => (
+                      <SelectItem key={role} value={role}>{roleConfig[role]?.label || role}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {isSuperAdmin && formData.role !== "super_admin" && (
+              <div>
+                <Label>Account *</Label>
+                <Select
+                  value={formData.profile_id}
+                  onValueChange={(val) => setFormData({ ...formData, profile_id: val })}
+                >
+                  <SelectTrigger className="mt-1 bg-gray-900 border-gray-700">
+                    <SelectValue placeholder="Select account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.display_name || profile.product_name_plural}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label>Email *</Label>
               <Input
@@ -905,6 +1002,8 @@ function ProfilesTab({
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const currentRole = normalizeRole(session?.user?.role);
   const [activeTab, setActiveTab] = useState("business");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -947,11 +1046,27 @@ export default function SettingsPage() {
     connected: boolean; pageName?: string; pageId?: string; expiresAt?: string;
   } | null>(null);
   const [fbLoading, setFbLoading] = useState(false);
+  const [rolePermissions, setRolePermissions] = useState<Record<AdminRole, RolePermissionMap>>(ROLE_PERMISSIONS);
+  const [selectedRole, setSelectedRole] = useState<AdminRole>("admin");
+  const [loadingRolePermissions, setLoadingRolePermissions] = useState(false);
+  const [savingRolePermissions, setSavingRolePermissions] = useState(false);
+  const sessionPermissions = session?.user?.permissions as RolePermissionMap | undefined;
+  const visibleTabs = useMemo(
+    () => tabs.filter((tab) => canAccessSettingsTab(currentRole, tab.id, sessionPermissions)),
+    [currentRole, sessionPermissions]
+  );
+  const canSaveCurrentTab = canWriteSettingsTab(currentRole, activeTab, sessionPermissions);
 
   // Sync bizState from context
   useEffect(() => {
     setBizState(bizConfig);
   }, [bizConfig]);
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [activeTab, visibleTabs]);
 
   // Load settings on mount
   useEffect(() => {
@@ -1002,6 +1117,93 @@ export default function SettingsPage() {
       window.history.replaceState({}, "", "/admin/settings?tab=integrations");
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "configuration") return;
+    fetchRolePermissions();
+  }, [activeTab]);
+
+  const fetchRolePermissions = async () => {
+    setLoadingRolePermissions(true);
+    try {
+      const res = await fetch("/api/role-permissions");
+      const data = await res.json();
+      if (data.success) {
+        setRolePermissions({ ...ROLE_PERMISSIONS, ...data.presets });
+      } else {
+        toast.error(data.error || "Failed to load permissions");
+      }
+    } catch {
+      toast.error("Failed to load permissions");
+    } finally {
+      setLoadingRolePermissions(false);
+    }
+  };
+
+  const toggleRolePermission = (module: string, action: PermissionAction) => {
+    if (selectedRole === "super_admin") return;
+    if (module === "users" || module === "credentials") return;
+
+    setRolePermissions((prev) => {
+      const currentRolePermissions = prev[selectedRole] || {};
+      const currentModule = currentRolePermissions[module] || {};
+      const nextValue = !currentModule[action];
+      const nextModule = { ...currentModule, [action]: nextValue };
+
+      if (action === "write" && nextValue) nextModule.read = true;
+      if (action === "delete" && nextValue) {
+        nextModule.read = true;
+        nextModule.write = true;
+      }
+      if (action === "read" && !nextValue) {
+        nextModule.write = false;
+        nextModule.delete = false;
+      }
+      if (action === "write" && !nextValue) nextModule.delete = false;
+
+      return {
+        ...prev,
+        [selectedRole]: {
+          ...currentRolePermissions,
+          [module]: nextModule,
+        },
+      };
+    });
+  };
+
+  const saveRolePermissions = async () => {
+    if (currentRole !== "super_admin") {
+      toast.error("Only super admins can change role permissions");
+      return;
+    }
+
+    setSavingRolePermissions(true);
+    try {
+      const res = await fetch("/api/role-permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: selectedRole,
+          permissions: rolePermissions[selectedRole],
+        }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setRolePermissions((prev) => ({
+          ...prev,
+          [selectedRole]: data.permissions,
+        }));
+        toast.success(`${roleConfig[selectedRole].label} permissions saved`);
+      } else {
+        toast.error(data.error || "Failed to save permissions");
+      }
+    } catch {
+      toast.error("Failed to save permissions");
+    } finally {
+      setSavingRolePermissions(false);
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -1187,6 +1389,11 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
+    if (!canSaveCurrentTab) {
+      toast.error("You do not have permission to change this section");
+      return;
+    }
+
     try {
       setSaving(true);
       const response = await fetch("/api/settings", {
@@ -1331,7 +1538,11 @@ export default function SettingsPage() {
           <h1 className="text-3xl font-bold">Settings</h1>
           <p className="text-gray-500 mt-1">Manage your store settings and preferences</p>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="btn-futuristic rounded-xl">
+        <Button
+          onClick={handleSave}
+          disabled={saving || !canSaveCurrentTab}
+          className="btn-futuristic rounded-xl"
+        >
           {saving ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -1348,7 +1559,7 @@ export default function SettingsPage() {
 
       {/* Tab Navigation */}
       <div className="glass-card rounded-2xl p-2 flex flex-wrap gap-2">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -2382,6 +2593,118 @@ export default function SettingsPage() {
           }}
           onCreateNew={() => router.push("/admin/setup?new=1")}
         />
+      )}
+
+      {/* Configuration Tab */}
+      {activeTab === "configuration" && (
+        <div className="space-y-6">
+          <div className="glass-card rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2 mb-2">
+                <Shield className="w-5 h-5 text-orange-500" />
+                Permission Configuration
+              </h2>
+              <p className="text-sm text-gray-400">
+                Super Admin can enable or disable module access for Admin, Manager, and Staff.
+              </p>
+            </div>
+            <Button
+              onClick={saveRolePermissions}
+              disabled={savingRolePermissions || loadingRolePermissions}
+              className="btn-futuristic rounded-xl"
+            >
+              {savingRolePermissions ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Role
+                </>
+              )}
+            </Button>
+          </div>
+
+          <div className="glass-card rounded-2xl p-2 flex flex-wrap gap-2">
+            {(["admin", "manager", "staff"] as AdminRole[]).map((role) => (
+              <button
+                key={role}
+                onClick={() => setSelectedRole(role)}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl transition-all ${
+                  selectedRole === role
+                    ? "bg-gradient-to-r from-orange-500 to-red-600 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span className="font-medium">{roleConfig[role].label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="glass-card rounded-2xl overflow-hidden">
+            {loadingRolePermissions ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-800">
+                {Object.entries(rolePermissions[selectedRole])
+                  .filter(([module]) => module !== "credentials" && module !== "users")
+                  .map(([module, permission]) => (
+                    <div key={module} className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-white/5">
+                      <div>
+                        <p className="font-semibold capitalize">{module.replace("_", " ")}</p>
+                        <p className="text-sm text-gray-500">
+                          Choose whether {roleConfig[selectedRole].label} can view, edit, or delete this area.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(["read", "write", "delete"] as PermissionAction[]).map((action) => {
+                          const enabled = permission[action] === true;
+                          return (
+                            <Button
+                              key={action}
+                              type="button"
+                              variant={enabled ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => toggleRolePermission(module, action)}
+                              className={enabled
+                                ? "text-white border-0"
+                                : "border-gray-700 text-gray-400 hover:text-white hover:bg-white/10"
+                              }
+                              style={enabled ? { background: "var(--color-primary)" } : {}}
+                            >
+                              {enabled ? (
+                                <Check className="w-4 h-4 mr-2" />
+                              ) : (
+                                <X className="w-4 h-4 mr-2" />
+                              )}
+                              {action === "read" ? "View" : action === "write" ? "Edit" : "Delete"}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                <div className="p-5 bg-yellow-500/10 border-t border-yellow-500/20">
+                  <div className="flex items-start gap-3">
+                    <Lock className="w-5 h-5 text-yellow-500 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-yellow-400">Protected credentials</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Credential changes stay available only to Super Admin; team access follows the fixed role hierarchy.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Custom Fields Tab */}

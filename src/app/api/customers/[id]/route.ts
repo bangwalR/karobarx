@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireTenantContext } from "@/lib/tenant";
 
 // GET single customer
 export async function GET(
@@ -7,13 +8,18 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "read" });
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const supabase = await createClient();
+    const profileId = guard.context.profileId!;
     
     const { data: customer, error } = await supabase
       .from("customers")
       .select("*")
       .eq("id", id)
+      .eq("profile_id", profileId)
       .single();
 
     if (error) {
@@ -28,6 +34,7 @@ export async function GET(
       .from("orders")
       .select("*")
       .eq("customer_id", id)
+      .eq("profile_id", profileId)
       .order("created_at", { ascending: false });
 
     return NextResponse.json({ 
@@ -53,9 +60,13 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "write" });
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const supabase = await createClient();
     const body = await request.json();
+    const profileId = guard.context.profileId!;
 
     const { name, email, phone, whatsapp_number, address, city, status, notes, custom_data } = body;
 
@@ -74,6 +85,7 @@ export async function PUT(
       .from("customers")
       .update(updateData)
       .eq("id", id)
+      .eq("profile_id", profileId)
       .select()
       .single();
 
@@ -95,17 +107,57 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "delete" });
+    if (!guard.ok) return guard.response;
+
     const { id } = await params;
     const supabase = await createClient();
+    const profileId = guard.context.profileId!;
     
+    const { data: customer } = await supabase
+      .from("customers")
+      .select("id, source_lead_id")
+      .eq("id", id)
+      .eq("profile_id", profileId)
+      .maybeSingle();
+
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
     const { error } = await supabase
       .from("customers")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("profile_id", profileId);
 
     if (error) {
       console.error("Error deleting customer:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const leadQuery = supabase
+      .from("leads")
+      .update({
+        status: "abandoned",
+        customer_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("profile_id", profileId)
+      .eq("customer_id", id);
+
+    await leadQuery;
+
+    if (customer.source_lead_id) {
+      await supabase
+        .from("leads")
+        .update({
+          status: "abandoned",
+          customer_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("profile_id", profileId)
+        .eq("id", customer.source_lead_id);
     }
 
     return NextResponse.json({ message: "Customer deleted successfully" });

@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getTemplateByType } from "@/lib/business-templates";
 import { getProfileId } from "@/lib/profile";
+import { requireTenantContext } from "@/lib/tenant";
 
 // GET - Retrieve the active profile's business config
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, {
+      requireProfile: false,
+      allowSuperAdminWithoutProfile: true,
+    });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
-    const profileId = getProfileId(request);
+    const profileId = guard.context.profileId ?? getProfileId(request);
 
     // CRITICAL: Only load a profile if we have a valid profileId cookie
     // Never load random profiles from the database for unauthenticated/new users
@@ -37,8 +44,8 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     // Fallback: if settings still has no profile_id (pre-migration rows), fetch unscoped
-    const { data: settingsFallback } = !settingsRow
-      ? await supabase.from("settings").select("store_name, logo_url").limit(1).maybeSingle()
+    const { data: settingsFallback } = !settingsRow && profileId
+      ? await supabase.from("settings").select("store_name, logo_url").is("profile_id", null).limit(1).maybeSingle()
       : { data: null };
     const effectiveSettings = settingsRow ?? settingsFallback;
 
@@ -79,7 +86,6 @@ export async function GET(request: NextRequest) {
 const TEMPLATE_ONLY_FIELDS = ["name", "description", "icon", "color"] as const;
 
 function sanitizeForDB(config: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id, created_at, updated_at, ...rest } = config as Record<string, unknown>;
   void id; // intentionally dropped — DB manages UUID
   void created_at;
@@ -93,6 +99,14 @@ function sanitizeForDB(config: Record<string, unknown>) {
 // POST - Save / update business config
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, {
+      module: "settings",
+      action: "write",
+      requireProfile: false,
+      allowSuperAdminWithoutProfile: true,
+    });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
     const raw = await request.json();
     const payload = sanitizeForDB(raw);
@@ -100,7 +114,7 @@ export async function POST(request: NextRequest) {
     // Respect the active_profile_id cookie so we always update the correct tenant row.
     // Falls back to checking for any existing row only when no cookie is present
     // (e.g. first-time setup before a profile has been created).
-    const profileId = getProfileId(request);
+    const profileId = guard.context.profileId ?? getProfileId(request);
 
     let existingId: string | null = null;
 

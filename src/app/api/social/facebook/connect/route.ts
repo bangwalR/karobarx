@@ -1,8 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireTenantContext } from "@/lib/tenant";
 
 // GET /api/social/facebook/connect
 // Redirects to Facebook Login OAuth — requests pages_messaging + page_read_engagement
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const guard = await requireTenantContext(request, { module: "settings", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const appId = process.env.META_APP_ID;
   const siteUrl = process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -25,6 +29,7 @@ export async function GET() {
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", scopes);
+  authUrl.searchParams.set("state", guard.context.profileId!);
 
   return NextResponse.redirect(authUrl.toString());
 }

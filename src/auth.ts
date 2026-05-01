@@ -10,6 +10,7 @@ declare module "next-auth" {
       id: string;
       username: string;
       role: string;
+      permissions?: Record<string, Record<string, boolean>>;
       /** null = super admin (access all profiles) */
       profile_id: string | null;
     } & DefaultSession["user"];
@@ -17,12 +18,14 @@ declare module "next-auth" {
   interface User {
     username?: string;
     role?: string;
+    permissions?: Record<string, Record<string, boolean>>;
     profile_id?: string | null;
   }
   interface JWT {
     id?: string;
     username?: string;
     role?: string;
+    permissions?: Record<string, Record<string, boolean>>;
     profile_id?: string | null;
   }
 }
@@ -51,7 +54,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { data: user } = await supabase
           .from("admin_users")
           .select(
-            "id, username, email, full_name, role, is_active, password_hash, profile_id, login_count"
+            "id, username, email, full_name, role, permissions, is_active, password_hash, profile_id, login_count"
           )
           .or(
             `username.eq.${credentials.username},email.eq.${credentials.username}`
@@ -83,6 +86,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email ?? "",
           username: user.username,
           role: user.role,
+          permissions: user.permissions,
           profile_id: user.profile_id ?? null,
         };
       },
@@ -95,6 +99,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id!;
         token.username = user.username;
         token.role = user.role;
+        token.permissions = user.permissions;
         token.profile_id = user.profile_id ?? null;
       }
       return token;
@@ -103,6 +108,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.id = token.id as string;
       session.user.username = token.username as string;
       session.user.role = token.role as string;
+      session.user.permissions = token.permissions as Record<string, Record<string, boolean>> | undefined;
       session.user.profile_id = (token.profile_id ?? null) as string | null;
       return session;
     },

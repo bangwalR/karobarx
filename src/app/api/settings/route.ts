@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getProfileId } from "@/lib/profile";
+import { requireTenantContext } from "@/lib/tenant";
 
 // GET - Retrieve settings
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, { module: "settings", action: "read" });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
-    const profileId = getProfileId(request);
+    const profileId = guard.context.profileId;
 
     // SECURITY: Require profile_id cookie - no profile = no access
     if (!profileId) {
@@ -16,7 +20,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let query = supabase.from("settings").select("*").eq("profile_id", profileId);
+    const query = supabase.from("settings").select("*").eq("profile_id", profileId);
     const { data, error } = await query.limit(1).maybeSingle();
 
     // Fallback for pre-migration rows that still have no profile_id
@@ -85,9 +89,22 @@ export async function POST(request: NextRequest) {
     // profile_id can come from:
     //  1. the request body (set by setup wizard for a freshly created profile)
     //  2. the active_profile_id cookie (normal admin editing Settings page)
-    const profileId: string | null = settings.profile_id ?? getProfileId(request) ?? null;
+    //  3. the session's assigned profile
+    const cookieProfileId = request.cookies.get("active_profile_id")?.value ?? null;
+    const profileId: string | null = settings.profile_id ?? cookieProfileId ?? null;
 
-    // SECURITY: Require profile_id - no profile = no access
+    // If profile_id is in the body (setup wizard flow), skip tenant guard
+    // Otherwise require auth
+    if (!settings.profile_id) {
+      const guard = await requireTenantContext(request, {
+        module: "settings",
+        action: "write",
+        requireProfile: false,
+        allowSuperAdminWithoutProfile: true,
+      });
+      if (!guard.ok) return guard.response;
+    }
+
     if (!profileId) {
       return NextResponse.json(
         { success: false, error: "No active profile. Please log out and log back in." },
@@ -148,9 +165,12 @@ export async function POST(request: NextRequest) {
 // PUT - Update specific settings (partial update)
 export async function PUT(request: NextRequest) {
   try {
+    const guard = await requireTenantContext(request, { module: "settings", action: "write" });
+    if (!guard.ok) return guard.response;
+
     const supabase = await createClient();
     const updates = await request.json();
-    const profileId = getProfileId(request);
+    const profileId = guard.context.profileId;
 
     // SECURITY: Require profile_id cookie - no profile = no access
     if (!profileId) {
