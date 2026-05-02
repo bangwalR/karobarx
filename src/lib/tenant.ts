@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Session } from "next-auth";
 import {
   hasPermission,
   normalizeRole,
@@ -9,7 +10,6 @@ import {
 } from "@/lib/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
-type Session = NonNullable<Awaited<ReturnType<typeof auth>>>;
 type SessionUser = Session["user"];
 
 export interface TenantContext {
