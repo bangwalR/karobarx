@@ -73,6 +73,19 @@ export async function requireTenantContext(
   const activeProfileId = getActiveProfileId(request);
   let profileId = activeProfileId ?? assignedProfileId;
 
+  if (isSuperAdmin && !profileId) {
+    const supabase = createAdminClient();
+    const { data: firstProfile } = await supabase
+      .from("business_config")
+      .select("id")
+      .order("setup_completed", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    profileId = firstProfile?.id ?? null;
+  }
+
   if (!isSuperAdmin) {
     if (!assignedProfileId) {
       return { ok: false, response: missingProfile() };

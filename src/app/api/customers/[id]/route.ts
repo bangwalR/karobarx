@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTenantContext } from "@/lib/tenant";
 
 // GET single customer
@@ -12,7 +12,7 @@ export async function GET(
     if (!guard.ok) return guard.response;
 
     const { id } = await params;
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const profileId = guard.context.profileId!;
     
     const { data: customer, error } = await supabase
@@ -64,7 +64,7 @@ export async function PUT(
     if (!guard.ok) return guard.response;
 
     const { id } = await params;
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const body = await request.json();
     const profileId = guard.context.profileId!;
 
@@ -111,32 +111,26 @@ export async function DELETE(
     if (!guard.ok) return guard.response;
 
     const { id } = await params;
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const profileId = guard.context.profileId!;
     
-    const { data: customer } = await supabase
+    const { data: customer, error: customerError } = await supabase
       .from("customers")
-      .select("id, source_lead_id")
+      .select("id")
       .eq("id", id)
       .eq("profile_id", profileId)
       .maybeSingle();
+
+    if (customerError) {
+      console.error("Error finding customer before delete:", customerError);
+      return NextResponse.json({ error: customerError.message }, { status: 500 });
+    }
 
     if (!customer) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
-    const { error } = await supabase
-      .from("customers")
-      .delete()
-      .eq("id", id)
-      .eq("profile_id", profileId);
-
-    if (error) {
-      console.error("Error deleting customer:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    const leadQuery = supabase
+    const { error: leadError } = await supabase
       .from("leads")
       .update({
         status: "abandoned",
@@ -146,18 +140,26 @@ export async function DELETE(
       .eq("profile_id", profileId)
       .eq("customer_id", id);
 
-    await leadQuery;
+    if (leadError) {
+      console.error("Error detaching leads before customer delete:", leadError);
+      return NextResponse.json({ error: leadError.message }, { status: 500 });
+    }
 
-    if (customer.source_lead_id) {
-      await supabase
-        .from("leads")
-        .update({
-          status: "abandoned",
-          customer_id: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("profile_id", profileId)
-        .eq("id", customer.source_lead_id);
+    const { data: deletedCustomer, error: deleteError } = await supabase
+      .from("customers")
+      .delete()
+      .eq("id", id)
+      .eq("profile_id", profileId)
+      .select("id")
+      .maybeSingle();
+
+    if (deleteError) {
+      console.error("Error deleting customer:", deleteError);
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    if (!deletedCustomer) {
+      return NextResponse.json({ error: "Customer was not deleted" }, { status: 500 });
     }
 
     return NextResponse.json({ message: "Customer deleted successfully" });

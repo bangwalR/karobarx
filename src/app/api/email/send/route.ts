@@ -1,19 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import sgMail from "@sendgrid/mail";
-import { getProfileId } from "@/lib/profile";
+import { Resend } from "resend";
+import { requireTenantContext } from "@/lib/tenant";
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    if (typeof record.message === "string") return record.message;
+    const response = record.response as { body?: unknown } | undefined;
+    if (response?.body) return JSON.stringify(response.body);
+  }
+  return "Failed to send email";
+}
 
 export async function POST(request: NextRequest) {
-  const profileId = getProfileId(request);
+  const guard = await requireTenantContext(request, { module: "customers", action: "read" });
+  if (!guard.ok) return guard.response;
 
-  if (!process.env.SENDGRID_API_KEY) {
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const sendGridApiKey = process.env.SENDGRID_API_KEY;
+
+  if (!resendApiKey && !sendGridApiKey) {
     return NextResponse.json(
-      { error: "SendGrid API key not configured. Add SENDGRID_API_KEY to your .env.local file." },
+      { error: "Email service not configured. Add RESEND_API_KEY or SENDGRID_API_KEY to your .env file." },
+      { status: 503 }
+    );
+  }
+
+  if (!resendApiKey && sendGridApiKey && !sendGridApiKey.startsWith("SG.")) {
+    return NextResponse.json(
+      { error: "SendGrid API key is invalid. It should start with SG. Update SENDGRID_API_KEY or use RESEND_API_KEY." },
       { status: 503 }
     );
   }
 
   try {
-    const { to, subject, body, from_name, from_email } = await request.json();
+    const payload = await request.json().catch(() => null);
+    if (!payload || typeof payload !== "object") {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const { to, subject, body, from_name, from_email } = payload;
 
     if (!to || !subject || !body) {
       return NextResponse.json(
@@ -23,17 +53,21 @@ export async function POST(request: NextRequest) {
     }
 
     const recipients = Array.isArray(to) ? to : [to];
-    const validEmails = recipients.filter((e: string) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
-    );
+    const emailRecipients = recipients.map((email: unknown) => String(email).trim()).filter(Boolean);
+    const invalidEmails = emailRecipients.filter((email) => !emailPattern.test(email));
 
-    if (validEmails.length === 0) {
-      return NextResponse.json({ error: "No valid email addresses provided" }, { status: 400 });
+    if (emailRecipients.length === 0) {
+      return NextResponse.json({ error: "No email addresses provided" }, { status: 400 });
     }
 
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    if (invalidEmails.length > 0) {
+      return NextResponse.json(
+        { error: `Invalid email address${invalidEmails.length > 1 ? "es" : ""}: ${invalidEmails.join(", ")}` },
+        { status: 400 }
+      );
+    }
 
-    const senderEmail = from_email || process.env.SENDGRID_FROM_EMAIL || "noreply@hiringround.online";
+    const senderEmail = from_email || process.env.RESEND_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || "invoices@hiringround.online";
     const senderName = from_name || process.env.NEXT_PUBLIC_STORE_NAME || "MobileHub Delhi";
 
     const htmlBody = body.includes("<") ? body : `
@@ -58,32 +92,57 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    const messages = validEmails.map((email: string) => ({
-      to: email,
-      from: { email: senderEmail, name: senderName },
-      subject,
-      html: htmlBody,
-      text: body.replace(/<[^>]*>/g, ""),
-    }));
-
-    // Send individually to personalise + track opens
+    const textBody = body.replace(/<[^>]*>/g, "");
     const results = await Promise.allSettled(
-      messages.map((msg) => sgMail.send(msg))
+      emailRecipients.map(async (email) => {
+        if (resendApiKey) {
+          const resend = new Resend(resendApiKey);
+          const { error } = await resend.emails.send({
+            to: [email],
+            from: `${senderName} <${senderEmail}>`,
+            subject,
+            html: htmlBody,
+            text: textBody,
+          });
+
+          if (error) throw new Error(error.message);
+          return;
+        }
+
+        sgMail.setApiKey(sendGridApiKey!);
+        await sgMail.send({
+          to: email,
+          from: { email: senderEmail, name: senderName },
+          subject,
+          html: htmlBody,
+          text: textBody,
+        });
+      })
     );
 
     const sent = results.filter((r) => r.status === "fulfilled").length;
     const failed = results.filter((r) => r.status === "rejected").length;
+    const errors = results
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map((r) => getErrorMessage(r.reason));
+
+    if (sent === 0) {
+      return NextResponse.json(
+        { error: errors[0] || "Email failed to send", sent, failed, total: emailRecipients.length },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       sent,
       failed,
-      total: validEmails.length,
+      total: emailRecipients.length,
       message: `Email sent to ${sent} recipient${sent !== 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`,
+      errors,
     });
   } catch (error) {
-    console.error("SendGrid error:", error);
-    const errMsg = error instanceof Error ? error.message : "Failed to send email";
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    console.error("Email error:", error);
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }

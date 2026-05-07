@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { getProfileId } from "@/lib/profile";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTenantContext } from "@/lib/tenant";
 
 // GET - Retrieve settings
@@ -9,7 +8,7 @@ export async function GET(request: NextRequest) {
     const guard = await requireTenantContext(request, { module: "settings", action: "read" });
     if (!guard.ok) return guard.response;
 
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const profileId = guard.context.profileId;
 
     // SECURITY: Require profile_id cookie - no profile = no access
@@ -83,7 +82,7 @@ export async function GET(request: NextRequest) {
 // POST - Save settings
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const settings = await request.json();
 
     // profile_id can come from:
@@ -168,7 +167,7 @@ export async function PUT(request: NextRequest) {
     const guard = await requireTenantContext(request, { module: "settings", action: "write" });
     if (!guard.ok) return guard.response;
 
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const updates = await request.json();
     const profileId = guard.context.profileId;
 

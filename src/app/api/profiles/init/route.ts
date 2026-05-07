@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { auth } from "@/auth";
 import { normalizeRole } from "@/lib/permissions";
 import { NextResponse } from "next/server";
@@ -23,7 +23,7 @@ export async function POST() {
 
     let profileId: string | null = session.user.profile_id ?? null;
     const role = normalizeRole(session.user.role);
-    const supabase = await createClient();
+    const supabase = createAdminClient();
 
     if (!profileId && role === "super_admin") {
       const { data: firstProfile } = await supabase

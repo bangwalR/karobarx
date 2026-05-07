@@ -107,19 +107,33 @@ export default function AppearancePage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/settings", {
+      let res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme_config: theme }),
       });
-      if (!res.ok) throw new Error("Failed to save");
+
+      if (res.status === 401) {
+        await fetch("/api/profiles/init", { method: "POST" });
+        res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ theme_config: theme }),
+        });
+      }
+
+      const result = await res.json().catch(() => null);
+      if (!res.ok || !result?.success) {
+        throw new Error(result?.error || "Failed to save appearance");
+      }
+
       toast.success("Appearance saved!");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       // Notify ThemeContext to reload across the app
       window.dispatchEvent(new Event("theme-updated"));
-    } catch {
-      toast.error("Failed to save appearance");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save appearance");
     } finally {
       setSaving(false);
     }

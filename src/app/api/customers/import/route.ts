@@ -1,24 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
+
+type ImportCustomer = {
+  name?: string;
+  phone?: string;
+  email?: string;
+  status?: string;
+  city?: string;
+  whatsapp_number?: string;
+};
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const body = await request.json();
+    const guard = await requireTenantContext(request, { module: "customers", action: "write" });
+    if (!guard.ok) return guard.response;
+
+    const supabase = createAdminClient();
+    const body = await request.json() as { customers?: ImportCustomer[] };
     const { customers } = body;
+    const profileId = guard.context.profileId!;
 
     if (!customers || !Array.isArray(customers) || customers.length === 0) {
       return NextResponse.json({ error: "Invalid data. Expected an array of customers." }, { status: 400 });
     }
 
     // Validate and format data
-    const validCustomers = customers.map((c: any) => ({
+    const validCustomers = customers.map((c) => ({
       name: c.name,
       phone: c.phone,
       email: c.email || null,
       status: c.status || "active",
       city: c.city || null,
       whatsapp_number: c.whatsapp_number || c.phone, // Default whatsapp to phone if not provided
+      profile_id: profileId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })).filter(c => c.name && c.phone);

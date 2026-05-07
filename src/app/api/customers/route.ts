@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTenantContext } from "@/lib/tenant";
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // GET all customers with stats
 export async function GET(request: NextRequest) {
@@ -8,7 +10,7 @@ export async function GET(request: NextRequest) {
     const guard = await requireTenantContext(request, { module: "customers", action: "read" });
     if (!guard.ok) return guard.response;
 
-    const supabase = await createClient();
+    const supabase = createAdminClient();
     const { searchParams } = new URL(request.url);
     
     const search = searchParams.get("search");
@@ -75,27 +77,50 @@ export async function POST(request: NextRequest) {
     const guard = await requireTenantContext(request, { module: "customers", action: "write" });
     if (!guard.ok) return guard.response;
 
-    const supabase = await createClient();
-    const body = await request.json();
+    const supabase = createAdminClient();
+    const body = await request.json().catch(() => null);
+
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { error: "Invalid JSON body. Send name and phone in the request body." },
+        { status: 400 }
+      );
+    }
 
     const { name, email, phone, whatsapp_number, address, city, status, notes, custom_data } = body;
     const profileId = guard.context.profileId!;
+    const normalizedPhone = String(phone || "").replace(/\D/g, "");
+    const normalizedEmail = String(email || "").trim();
 
-    if (!name || !phone) {
+    if (!name || !normalizedPhone || !normalizedEmail || !status) {
       return NextResponse.json(
-        { error: "Name and phone are required" },
+        { error: "Name, phone, email, and status are required" },
+        { status: 400 }
+      );
+    }
+
+    if (normalizedPhone.length !== 10) {
+      return NextResponse.json(
+        { error: "Phone number must be exactly 10 digits" },
+        { status: 400 }
+      );
+    }
+
+    if (!emailPattern.test(normalizedEmail)) {
+      return NextResponse.json(
+        { error: "Invalid email address" },
         { status: 400 }
       );
     }
 
     const customerData: Record<string, unknown> = {
-      name,
-      email: email || null,
-      phone,
-      whatsapp_number: whatsapp_number || phone,
+      name: String(name).trim(),
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      whatsapp_number: whatsapp_number || normalizedPhone,
       address: address || null,
       city: city || "Delhi",
-      status: status || "new",
+      status,
       notes: notes || null,
       custom_data: custom_data || {},
       profile_id: profileId,
@@ -115,6 +140,79 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ customer: data, message: "Customer created successfully" }, { status: 201 });
   } catch (error) {
     console.error("Error in POST /api/customers:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// DELETE - Support Postman-friendly /api/customers?id=<customer_uuid>
+export async function DELETE(request: NextRequest) {
+  try {
+    const guard = await requireTenantContext(request, { module: "customers", action: "delete" });
+    if (!guard.ok) return guard.response;
+
+    const supabase = createAdminClient();
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    const profileId = guard.context.profileId!;
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "Customer id is required. Use /api/customers?id=<customer_uuid> or /api/customers/<customer_uuid>." },
+        { status: 400 }
+      );
+    }
+
+    const { data: customer, error: customerError } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("id", id)
+      .eq("profile_id", profileId)
+      .maybeSingle();
+
+    if (customerError) {
+      console.error("Error finding customer before delete:", customerError);
+      return NextResponse.json({ error: customerError.message }, { status: 500 });
+    }
+
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    const { error: leadError } = await supabase
+      .from("leads")
+      .update({
+        status: "abandoned",
+        customer_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("profile_id", profileId)
+      .eq("customer_id", id);
+
+    if (leadError) {
+      console.error("Error detaching leads before customer delete:", leadError);
+      return NextResponse.json({ error: leadError.message }, { status: 500 });
+    }
+
+    const { data: deletedCustomer, error: deleteError } = await supabase
+      .from("customers")
+      .delete()
+      .eq("id", id)
+      .eq("profile_id", profileId)
+      .select("id")
+      .maybeSingle();
+
+    if (deleteError) {
+      console.error("Error deleting customer:", deleteError);
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    if (!deletedCustomer) {
+      return NextResponse.json({ error: "Customer was not deleted" }, { status: 500 });
+    }
+
+    return NextResponse.json({ message: "Customer deleted successfully" });
+  } catch (error) {
+    console.error("Error in DELETE /api/customers:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
