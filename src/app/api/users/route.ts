@@ -1,8 +1,29 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeRole, ROLE_PERMISSIONS } from "@/lib/permissions";
+import {
+  canManageTargetRole,
+  requireTenantContext,
+  type TenantContext,
+} from "@/lib/tenant";
 
-// GET all users
+function resolveProfileForNewUser(context: TenantContext, targetRole: ReturnType<typeof normalizeRole>, requestedProfileId?: string | null) {
+  if (targetRole === "super_admin") return null;
+  if (context.isSuperAdmin) return requestedProfileId ?? null;
+  return context.profileId;
+}
+
+// GET all visible users
 export async function GET(request: NextRequest) {
+  const guard = await requireTenantContext(request, {
+    module: "users",
+    action: "read",
+    requireProfile: false,
+    allowSuperAdminWithoutProfile: true,
+  });
+  if (!guard.ok) return guard.response;
+
+  const { context } = guard;
   const supabase = await createClient();
   const searchParams = request.nextUrl.searchParams;
   const role = searchParams.get("role");
@@ -10,16 +31,16 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("admin_users")
-    .select("id, username, email, full_name, phone, avatar_url, role, permissions, is_active, last_login_at, login_count, created_at")
+    .select("id, username, email, full_name, phone, avatar_url, role, permissions, profile_id, is_active, last_login_at, login_count, created_at")
     .order("created_at", { ascending: false });
 
-  if (role) {
-    query = query.eq("role", role);
+  if (!context.isSuperAdmin) {
+    query = query.eq("profile_id", context.profileId);
+    if (context.role === "manager") query = query.eq("role", "staff");
   }
 
-  if (active !== null) {
-    query = query.eq("is_active", active === "true");
-  }
+  if (role) query = query.eq("role", role);
+  if (active !== null) query = query.eq("is_active", active === "true");
 
   const { data, error } = await query;
 
@@ -28,7 +49,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Get role presets for reference
   const { data: rolePresets } = await supabase
     .from("role_presets")
     .select("*")
@@ -39,6 +59,15 @@ export async function GET(request: NextRequest) {
 
 // CREATE new user
 export async function POST(request: NextRequest) {
+  const guard = await requireTenantContext(request, {
+    module: "users",
+    action: "write",
+    requireProfile: false,
+    allowSuperAdminWithoutProfile: true,
+  });
+  if (!guard.ok) return guard.response;
+
+  const { context } = guard;
   const supabase = await createClient();
   const body = await request.json();
 
@@ -52,7 +81,7 @@ export async function POST(request: NextRequest) {
     role,
     permissions,
     is_active,
-    created_by,
+    profile_id,
   } = body;
 
   if (!username || !email || !password || !full_name) {
@@ -62,12 +91,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check if username or email already exists
+  const targetRole = normalizeRole(role || "staff");
+  if (!canManageTargetRole(context.role, targetRole)) {
+    return NextResponse.json({ error: "You cannot assign this role" }, { status: 403 });
+  }
+
+  const targetProfileId = resolveProfileForNewUser(context, targetRole, profile_id);
+  if (targetRole !== "super_admin" && !targetProfileId) {
+    return NextResponse.json({ error: "Account is required for this user" }, { status: 400 });
+  }
+
   const { data: existing } = await supabase
     .from("admin_users")
     .select("id, username, email")
     .or(`username.eq.${username},email.eq.${email}`)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     if (existing.username === username) {
@@ -78,21 +116,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Get permissions from role preset if not provided
-  let userPermissions = permissions;
-  if (!userPermissions && role) {
-    const { data: preset } = await supabase
-      .from("role_presets")
-      .select("permissions")
-      .eq("role", role)
-      .single();
-    
-    if (preset) {
-      userPermissions = preset.permissions;
-    }
-  }
-
-  // Hash password using the database function
   const { data: hashResult, error: hashError } = await supabase
     .rpc("hash_password", { password });
 
@@ -101,23 +124,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to hash password" }, { status: 500 });
   }
 
-  const userData = {
-    username,
-    email,
-    password_hash: hashResult,
-    full_name,
-    phone: phone || null,
-    avatar_url: avatar_url || null,
-    role: role || "staff",
-    permissions: userPermissions || {},
-    is_active: is_active !== false,
-    created_by: created_by || null,
-  };
+  const safePermissions = permissions && context.isSuperAdmin
+    ? permissions
+    : ROLE_PERMISSIONS[targetRole];
 
   const { data, error } = await supabase
     .from("admin_users")
-    .insert([userData])
-    .select("id, username, email, full_name, phone, avatar_url, role, permissions, is_active, created_at")
+    .insert([{
+      username,
+      email,
+      password_hash: hashResult,
+      full_name,
+      phone: phone || null,
+      avatar_url: avatar_url || null,
+      role: targetRole,
+      permissions: safePermissions || {},
+      profile_id: targetProfileId,
+      is_active: is_active !== false,
+      created_by: context.user.id,
+    }])
+    .select("id, username, email, full_name, phone, avatar_url, role, permissions, profile_id, is_active, created_at")
     .single();
 
   if (error) {

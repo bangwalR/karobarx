@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
 // POST /api/social/instagram/send
 export async function POST(req: NextRequest) {
+  const guard = await requireTenantContext(req, { module: "conversations", action: "write" });
+  if (!guard.ok) return guard.response;
+
   const { recipientId, message } = await req.json();
 
   if (!recipientId || !message?.trim()) {
@@ -16,6 +20,7 @@ export async function POST(req: NextRequest) {
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id")
+    .eq("profile_id", guard.context.profileId!)
     .eq("platform", "instagram")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })

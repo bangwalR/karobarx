@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   const settingsUrl = `${siteUrl}/admin/settings?tab=integrations`;
 
   const { searchParams } = req.nextUrl;
+  const profileId = searchParams.get("state");
   const error = searchParams.get("error");
   if (error) {
     return NextResponse.redirect(
@@ -17,6 +18,7 @@ export async function GET(req: NextRequest) {
 
   const code = searchParams.get("code");
   if (!code) return NextResponse.redirect(`${settingsUrl}&fb_error=no_code`);
+  if (!profileId) return NextResponse.redirect(`${settingsUrl}&fb_error=missing_account_context`);
 
   const appId = process.env.META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
@@ -67,10 +69,12 @@ export async function GET(req: NextRequest) {
     const { data: existing } = await supabase
       .from("social_connections")
       .select("id")
+      .eq("profile_id", profileId)
       .eq("platform", "facebook")
       .maybeSingle();
 
     const row = {
+      profile_id: profileId,
       platform: "facebook",
       account_id: pageId,
       account_name: pageName,

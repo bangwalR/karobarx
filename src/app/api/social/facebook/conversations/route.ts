@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
-async function getConnection() {
+async function getConnection(profileId: string) {
   const supabase = createAdminClient();
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id, page_id, account_name")
+    .eq("profile_id", profileId)
     .eq("platform", "facebook")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })
@@ -42,7 +44,10 @@ async function fetchPages(
 // GET /api/social/facebook/conversations?since=ISO_TIMESTAMP
 // Incremental sync — only returns conversations updated after `since`
 export async function GET(req: NextRequest) {
-  const conn = await getConnection();
+  const guard = await requireTenantContext(req, { module: "conversations", action: "read" });
+  if (!guard.ok) return guard.response;
+
+  const conn = await getConnection(guard.context.profileId!);
   if (!conn?.access_token) {
     return NextResponse.json({ error: "Facebook not connected", conversations: [] }, { status: 503 });
   }

@@ -3,18 +3,12 @@ import { NextRequest } from "next/server";
 /**
  * Reads the active profile ID from the request.
  *
- * Priority order:
- *  1. `active_profile_id` httpOnly cookie (set by /api/profiles/switch)
- *  2. `x-profile-id` header (fallback for programmatic callers)
- *  3. `profile_id` query param
+ * The account context must come from the httpOnly cookie set by the server.
+ * Do not accept profile/account IDs from query params or headers for normal
+ * app APIs; those are caller-controlled and can bypass tenant isolation.
  *
- * Returns null when no profile is scoped (super-admin browsing all data).
+ * Returns null when no profile is scoped.
  */
 export function getProfileId(request: NextRequest): string | null {
-  return (
-    request.cookies.get("active_profile_id")?.value ??
-    request.headers.get("x-profile-id") ??
-    request.nextUrl.searchParams.get("profile_id") ??
-    null
-  );
+  return request.cookies.get("active_profile_id")?.value ?? null;
 }

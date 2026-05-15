@@ -85,6 +85,16 @@ interface Stats {
   avgOrderValue: number;
 }
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(email: string) {
+  return emailPattern.test(email.trim());
+}
+
+function getTenDigitPhone(phone: string) {
+  return phone.replace(/\D/g, "").slice(0, 10);
+}
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,9 +180,13 @@ export default function CustomersPage() {
         setCustomers(customers.filter(c => c.id !== id));
         setShowDeleteDialog(false);
         setSelectedCustomer(null);
+      } else {
+        const error = await response.json().catch(() => null);
+        alert(error?.error || `Failed to delete customer (${response.status})`);
       }
     } catch (error) {
       console.error("Error deleting customer:", error);
+      alert(error instanceof Error ? error.message : "Failed to delete customer");
     } finally {
       setSaving(false);
     }
@@ -215,20 +229,44 @@ export default function CustomersPage() {
         setSelectedCustomer(null);
         fetchCustomers();
       } else {
-        const error = await response.json();
-        alert(error.error || "Failed to update customer");
+        const error = await response.json().catch(() => null);
+        alert(error?.error || `Failed to update customer (${response.status})`);
       }
     } catch (error) {
       console.error("Error updating customer:", error);
-      alert("Failed to update customer");
+      alert(error instanceof Error ? error.message : "Failed to update customer");
     } finally {
       setSaving(false);
     }
   };
 
   const handleAddCustomer = async () => {
-    if (!newCustomer.name || !newCustomer.phone) {
-      alert("Name and phone are required!");
+    const phone = getTenDigitPhone(newCustomer.phone);
+    const email = newCustomer.email.trim();
+
+    if (!newCustomer.name.trim() || !phone || !email || !newCustomer.status) {
+      alert("Name, phone, email, and status are required!");
+      return;
+    }
+
+    if (phone.length !== 10) {
+      alert("Phone number must be exactly 10 digits.");
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      alert("Invalid email format. Please enter a valid email address.");
+      return;
+    }
+
+    const missingCustomField = customFields.find((field) => {
+      if (!field.required) return false;
+      const value = newCustomerCustomData[field.field_name];
+      return value === undefined || value === null || value === "";
+    });
+
+    if (missingCustomField) {
+      alert(`${missingCustomField.field_label} is required!`);
       return;
     }
 
@@ -237,7 +275,13 @@ export default function CustomersPage() {
       const response = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newCustomer, custom_data: newCustomerCustomData }),
+        body: JSON.stringify({
+          ...newCustomer,
+          name: newCustomer.name.trim(),
+          phone,
+          email,
+          custom_data: newCustomerCustomData,
+        }),
       });
 
       if (response.ok) {
@@ -246,12 +290,12 @@ export default function CustomersPage() {
         setNewCustomerCustomData({});
         fetchCustomers();
       } else {
-        const error = await response.json();
-        alert(error.error || "Failed to add customer");
+        const error = await response.json().catch(() => null);
+        alert(error?.error || `Failed to add customer (${response.status})`);
       }
     } catch (error) {
       console.error("Error adding customer:", error);
-      alert("Failed to add customer");
+      alert(error instanceof Error ? error.message : "Failed to add customer");
     } finally {
       setSaving(false);
     }
@@ -332,11 +376,17 @@ export default function CustomersPage() {
     }
 
     const recipients = emailTarget
-      ? [emailTarget.email].filter(Boolean)
+      ? [emailTarget.email].filter((email): email is string => Boolean(email))
       : filteredCustomers.filter((c) => c.email).map((c) => c.email as string);
 
     if (recipients.length === 0) {
       alert("No email addresses found for selected customers.");
+      return;
+    }
+
+    const invalidEmails = recipients.filter((email) => !isValidEmail(email));
+    if (invalidEmails.length > 0) {
+      alert(`Invalid email address: ${invalidEmails.join(", ")}`);
       return;
     }
 
@@ -353,16 +403,24 @@ export default function CustomersPage() {
         }),
       });
       const data = await res.json();
-      if (data.error) {
-        alert(data.error);
-      } else {
+      if (!res.ok || data.error) {
+        alert(data.error || `Failed to send email (${res.status})`);
+      } else if (data.sent > 0) {
+        if (data.failed > 0) {
+          alert(data.message || `${data.sent} email sent, ${data.failed} failed`);
+        }
+        
         setEmailResult({ sent: data.sent, failed: data.failed });
-        setTimeout(() => {
-          setShowEmailModal(false);
-          setEmailForm({ subject: "", body: "" });
-          setEmailResult(null);
-          setEmailTarget(null);
-        }, 3000);
+        if (data.failed === 0) {
+          setTimeout(() => {
+            setShowEmailModal(false);
+            setEmailForm({ subject: "", body: "" });
+            setEmailResult(null);
+            setEmailTarget(null);
+          }, 3000);
+        }
+      } else {
+        alert("Email failed to send");
       }
     } catch (error) {
       console.error("Email error:", error);
@@ -370,6 +428,16 @@ export default function CustomersPage() {
     } finally {
       setEmailSending(false);
     }
+  };
+
+  const openEmailModal = (customer: Customer) => {
+    if (!customer.email || !isValidEmail(customer.email)) {
+      alert("Invalid email address for this customer.");
+      return;
+    }
+
+    setEmailTarget(customer);
+    setShowEmailModal(true);
   };
 
   const filteredCustomers = customers.filter(
@@ -590,7 +658,7 @@ export default function CustomersPage() {
                           </DropdownMenuItem>
                           {customer.email && (
                             <DropdownMenuItem
-                              onClick={() => { setEmailTarget(customer); setShowEmailModal(true); }}
+                              onClick={() => openEmailModal(customer)}
                               className="cursor-pointer"
                             >
                               <Mail className="w-4 h-4 mr-2 text-blue-400" />
@@ -695,6 +763,7 @@ export default function CustomersPage() {
                 placeholder="Customer name"
                 value={newCustomer.name}
                 onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+                required
                 className="bg-white/5 border-gray-800 rounded-xl"
               />
             </div>
@@ -703,27 +772,35 @@ export default function CustomersPage() {
               <Label htmlFor="phone">Phone *</Label>
               <Input
                 id="phone"
-                placeholder="+91 98765 43210"
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                placeholder="9876543210"
                 value={newCustomer.phone}
-                onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                onChange={(e) => setNewCustomer({ ...newCustomer, phone: getTenDigitPhone(e.target.value) })}
+                required
                 className="bg-white/5 border-gray-800 rounded-xl"
               />
+              <p className="text-xs text-gray-500">Enter exactly 10 digits.</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Email *</Label>
               <Input
                 id="email"
                 type="email"
+                required
                 placeholder="customer@example.com"
                 value={newCustomer.email}
                 onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
                 className="bg-white/5 border-gray-800 rounded-xl"
               />
+              <p className="text-xs text-gray-500">Use a valid format like name@example.com.</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="status">Status *</Label>
               <Select 
                 value={newCustomer.status} 
                 onValueChange={(value) => setNewCustomer({ ...newCustomer, status: value })}

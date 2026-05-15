@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { hasPermission } from "@/lib/permissions";
 
 // POST - Change password
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session?.user || !hasPermission(session.user.role, "credentials", "write", session.user.permissions)) {
+      return NextResponse.json(
+        { success: false, error: "Only super admins can change login passwords" },
+        { status: 403 }
+      );
+    }
+
     const { currentPassword, newPassword } = await request.json();
     
     // Get current password from environment or default

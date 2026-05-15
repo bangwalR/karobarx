@@ -105,6 +105,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
 
     loadTheme();
+
+    // Re-apply theme whenever the appearance page saves it
+    const handleThemeChange = () => { loadTheme(); };
+    window.addEventListener("theme-updated", handleThemeChange);
+    return () => window.removeEventListener("theme-updated", handleThemeChange);
   }, []);
 
   // Apply theme colors to DOM using CSS variables
@@ -152,11 +157,25 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const saveTheme = async () => {
     // Save theme to settings
-    await fetch("/api/settings", {
+    let res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ theme_config: theme }),
     });
+
+    if (res.status === 401) {
+      await fetch("/api/profiles/init", { method: "POST" });
+      res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme_config: theme }),
+      });
+    }
+
+    const result = await res.json().catch(() => null);
+    if (!res.ok || !result?.success) {
+      throw new Error(result?.error || "Failed to save theme");
+    }
   };
 
   return (

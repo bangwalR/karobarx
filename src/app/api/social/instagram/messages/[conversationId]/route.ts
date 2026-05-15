@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTenantContext } from "@/lib/tenant";
 
 type RawMsg = {
   id: string;
@@ -18,8 +19,12 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
+  const guard = await requireTenantContext(req, { module: "conversations", action: "read" });
+  if (!guard.ok) return guard.response;
+
   const { conversationId } = await params;
   const cursor = req.nextUrl.searchParams.get("cursor") || null;
+  const profileId = guard.context.profileId!;
 
   const supabase = createAdminClient();
   
@@ -32,6 +37,7 @@ export async function GET(
       .from("leads")
       .select("*")
       .eq("id", leadId)
+      .eq("profile_id", profileId)
       .single();
     
     if (!lead) {
@@ -82,6 +88,7 @@ export async function GET(
   const { data: rows } = await supabase
     .from("social_connections")
     .select("access_token, account_id")
+    .eq("profile_id", profileId)
     .eq("platform", "instagram")
     .eq("is_connected", true)
     .order("created_at", { ascending: false })

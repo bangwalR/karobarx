@@ -1,5 +1,22 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
+import { hasPermission } from "@/lib/permissions";
+
+const ADMIN_ROUTE_MODULES: { prefix: string; module: string }[] = [
+  { prefix: "/admin/inventory", module: "inventory" },
+  { prefix: "/admin/customers", module: "customers" },
+  { prefix: "/admin/leads", module: "leads" },
+  { prefix: "/admin/marketing", module: "marketing" },
+  { prefix: "/admin/orders", module: "orders" },
+  { prefix: "/admin/conversations", module: "conversations" },
+  { prefix: "/admin/communities", module: "communities" },
+  { prefix: "/admin/inquiries", module: "inquiries" },
+  { prefix: "/admin/calendar", module: "calendar" },
+  { prefix: "/admin/telegram", module: "telegram" },
+  { prefix: "/admin/ai-assistant", module: "ai_assistant" },
+  { prefix: "/admin/analytics", module: "analytics" },
+  { prefix: "/admin/settings", module: "settings" },
+];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -8,10 +25,15 @@ export default auth((req) => {
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
   // These admin paths are always public (no auth required)
-  if (
-    pathname.startsWith("/admin/login") ||
-    pathname.startsWith("/admin/setup")
-  ) {
+  if (pathname.startsWith("/admin/setup")) {
+    return NextResponse.next();
+  }
+
+  // If already logged in, redirect away from login page
+  if (pathname.startsWith("/admin/login")) {
+    if (req.auth) {
+      return NextResponse.redirect(new URL("/admin", req.url));
+    }
     return NextResponse.next();
   }
 
@@ -20,6 +42,16 @@ export default auth((req) => {
     const loginUrl = new URL("/admin/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  const routeModule = ADMIN_ROUTE_MODULES.find((item) => pathname.startsWith(item.prefix));
+  const moduleName =
+    routeModule?.prefix === "/admin/settings" && req.nextUrl.searchParams.get("tab") === "team"
+      ? "users"
+      : routeModule?.module;
+
+  if (moduleName && !hasPermission(req.auth.user?.role, moduleName, "read", req.auth.user?.permissions)) {
+    return NextResponse.redirect(new URL("/admin", req.url));
   }
 
   return NextResponse.next();

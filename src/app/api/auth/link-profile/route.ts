@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { auth } from "@/auth";
+import { canAccessProfile } from "@/lib/tenant";
 
 /**
  * PATCH /api/auth/link-profile
@@ -32,6 +33,10 @@ export async function PATCH(req: NextRequest) {
     }
 
     const supabase = getAdminSupabase();
+
+    if (!(await canAccessProfile(profile_id, session.user))) {
+      return NextResponse.json({ error: "You do not have access to this profile" }, { status: 403 });
+    }
 
     // 1. Link the admin user to their profile
     const { error: userErr } = await supabase

@@ -13,7 +13,7 @@
 
 # whatsapp-backend specific
 whatsapp-backend/node_modules/
-whatsapp-backend/.wwebjs_auth/
+whatsapp-backend/.wwebjs_/
 whatsapp-backend/.wwebjs_cache/
 
 # testing

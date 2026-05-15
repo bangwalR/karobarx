@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Eye, EyeOff, Lock, User, Store, AlertCircle, Mail, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,14 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/admin";
+  const { data: session, status } = useSession();
+
+  // If already logged in, redirect away from login page immediately
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/admin");
+    }
+  }, [status, router]);
 
   const [mode, setMode] = useState<"login" | "register">("login");
 
@@ -151,6 +159,13 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      {/* Show nothing while checking auth — prevents flash of login form */}
+      {status === "loading" || status === "authenticated" ? (
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-600 rounded-full animate-spin" />
+          <p className="text-sm text-slate-400">Loading…</p>
+        </div>
+      ) : (
       <div className="w-full max-w-md">
 
         {/* Logo */}
@@ -397,6 +412,7 @@ function LoginForm() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

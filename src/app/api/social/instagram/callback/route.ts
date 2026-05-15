@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   const adminUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
   const settingsUrl = `${adminUrl}/admin/settings?tab=integrations`;
   const { searchParams } = req.nextUrl;
+  const profileId = searchParams.get("state");
 
   // Handle user-denied or error from Instagram
   const error = searchParams.get("error");
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get("code")?.replace(/#_$/, "");
   if (!code) {
     return NextResponse.redirect(`${settingsUrl}&ig_error=no_code`);
+  }
+  if (!profileId) {
+    return NextResponse.redirect(`${settingsUrl}&ig_error=missing_account_context`);
   }
 
   const appId = process.env.META_APP_ID;
@@ -95,10 +99,12 @@ export async function GET(req: NextRequest) {
     const { data: existing } = await supabase
       .from("social_connections")
       .select("id")
+      .eq("profile_id", profileId)
       .eq("platform", "instagram")
       .maybeSingle();
 
     const row = {
+      profile_id: profileId,
       platform: "instagram",
       account_id: igBusinessAccountId,
       account_name: username,
