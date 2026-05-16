@@ -1,92 +1,70 @@
-# MobileHub Delhi
+# KarobarX CRM
 
-A professional CRM dashboard and e-commerce website for a second-hand mobile phone business in Delhi, India, with WhatsApp AI agent integration via n8n.
+KarobarX CRM is a Next.js App Router CRM and admin system for customer management, leads, inventory, orders, campaigns, and messaging workflows.
 
-## 🚀 Features
+## Stack
 
-### CRM Dashboard (`/admin`)
-- **Inventory Management** - Add, edit, and track mobile phones with detailed specs
-- **Condition Grading** - A+ to D grading system with quality checks
-- **Pricing in INR** - Cost price, selling price, MRP with discount calculation
-- **IMEI Tracking** - CEIR verification status
-- **Warranty Management** - 30/60/90 day seller warranty options
-- **Analytics Dashboard** - Sales trends, popular brands, revenue tracking
+- Next.js 16.1.1
+- React 19.2.3
+- TypeScript
+- Tailwind CSS 4
+- Supabase (Postgres + Auth)
+- NextAuth for admin session handling
 
-### Public Website
-- **Phone Catalog** - Browse all available phones with filters
-- **Detailed Product Pages** - Full specs, condition reports, battery health
-- **Brand Filtering** - Apple, Samsung, OnePlus, Xiaomi, Vivo, Oppo, Realme
-- **Price Range Filter** - Budget-based search
-- **WhatsApp Integration** - Click-to-chat with pre-filled messages
-- **Mobile Responsive** - Optimized for all devices
+## Core Features
 
-### WhatsApp AI Agent (n8n)
-- **Automated Responses** - AI-powered replies to customer queries
-- **Inventory Search** - Real-time phone availability checks
-- **Hindi-English Mix** - Natural Delhi shopkeeper communication style
-- **Intent Detection** - Understands greetings, searches, price inquiries
-- **Suggestion Engine** - Recommends alternatives if exact match unavailable
+- Admin dashboard and analytics
+- Customer, lead, inquiry, and order management
+- Inventory and product catalog
+- Email and campaign workflows
+- WhatsApp, Instagram, Facebook, and Telegram integrations
+- Supabase email OTP signup/login flow for admin users
 
-## 🛠️ Tech Stack
+## Getting Started
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS + shadcn/ui
-- **Database**: Supabase (PostgreSQL)
-- **Icons**: Lucide React
-- **Automation**: n8n workflows
-- **AI**: OpenAI GPT (via n8n)
+1. Install dependencies:
 
-## 🚀 Getting Started
+```bash
+npm install
+```
 
-### Prerequisites
-- Node.js 18+
-- npm or yarn
-- Supabase account
-- WhatsApp Business API (for AI agent)
-- n8n instance (self-hosted or cloud)
+2. Create your env file:
 
-### Installation
+```bash
+cp .env.example .env
+```
 
-1. **Install Dependencies**
-   ```bash
-   npm install
-   ```
+3. Apply your Supabase schema and migrations, including:
 
-2. **Set Up Environment**
-   ```bash
-   cp .env.example .env.local
-   # Edit .env.local with your values
-   ```
+```text
+supabase/migrations/024_supabase_otp_auth.sql
+```
 
-3. **Set Up Database**
-   - Create a Supabase project
-   - Run `supabase/schema.sql` in SQL Editor
-   - Copy project URL and keys to `.env.local`
+4. Start development:
 
-4. **Run Development Server**
-   ```bash
-   npm run dev
-   ```
+```bash
+npm run dev
+```
 
-5. **Open in Browser**
-   - Website: http://localhost:3000
-   - CRM: http://localhost:3000/admin
+5. Open:
 
-## 📱 API Endpoints
+- App: `http://localhost:3000`
+- Admin: `http://localhost:3000/admin`
 
-- `GET /api/phones/search` - Search inventory
-- `GET /api/phones/[id]` - Get phone details
-- `POST /api/webhook/whatsapp` - n8n webhook
+## Authentication
 
-## 🇮🇳 Indian Market Features
+KarobarX CRM now supports Supabase email OTP authentication for admin users.
 
-- GST Compliance (18%)
-- IMEI Verification
-- INR Pricing (₹)
-- Hindi-English Support
-- Delhi Location
+- Request OTP: `/api/auth/otp/request`
+- Verify OTP: `/api/auth/otp/verify`
+- Session creation: NextAuth credentials flow using a one-time OTP ticket
 
----
+See [docs/AUTH_OTP_SETUP.md](docs/AUTH_OTP_SETUP.md) for setup details.
 
-Built with ❤️ for Delhi's mobile market
+## Production
+
+- Health check: `/api/health`
+- Secure headers are configured in `next.config.ts`
+- Sensitive internal/debug routes should be protected with `INTERNAL_API_SECRET`
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for deployment steps.

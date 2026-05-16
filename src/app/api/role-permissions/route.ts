@@ -8,7 +8,7 @@ import {
 } from "@/lib/permissions";
 import { NextRequest, NextResponse } from "next/server";
 
-const EDITABLE_ROLES: AdminRole[] = ["admin", "manager", "staff"];
+const EDITABLE_ROLES: AdminRole[] = ["admin", "manager", "staff", "sales", "support", "viewer"];
 
 function lockProtectedPermissions(role: AdminRole, permissions: RolePermissionMap) {
   if (role === "super_admin") return ROLE_PERMISSIONS.super_admin;
@@ -34,11 +34,14 @@ export async function GET() {
     .in("role", ["super_admin", ...EDITABLE_ROLES])
     .order("role");
 
-  const presets = {
+  const presets: Record<AdminRole, RolePermissionMap> = {
     super_admin: ROLE_PERMISSIONS.super_admin,
     admin: ROLE_PERMISSIONS.admin,
     manager: ROLE_PERMISSIONS.manager,
     staff: ROLE_PERMISSIONS.staff,
+    sales: ROLE_PERMISSIONS.sales,
+    support: ROLE_PERMISSIONS.support,
+    viewer: ROLE_PERMISSIONS.viewer,
   };
 
   for (const row of data || []) {

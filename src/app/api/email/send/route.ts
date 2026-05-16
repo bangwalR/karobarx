@@ -22,6 +22,8 @@ export async function POST(request: NextRequest) {
 
   const resendApiKey = process.env.RESEND_API_KEY;
   const sendGridApiKey = process.env.SENDGRID_API_KEY;
+  const resendFromEmail = process.env.RESEND_FROM_EMAIL;
+  const sendGridFromEmail = process.env.SENDGRID_FROM_EMAIL;
 
   if (!resendApiKey && !sendGridApiKey) {
     return NextResponse.json(
@@ -33,6 +35,20 @@ export async function POST(request: NextRequest) {
   if (!resendApiKey && sendGridApiKey && !sendGridApiKey.startsWith("SG.")) {
     return NextResponse.json(
       { error: "SendGrid API key is invalid. It should start with SG. Update SENDGRID_API_KEY or use RESEND_API_KEY." },
+      { status: 503 }
+    );
+  }
+
+  if (resendApiKey && !resendFromEmail) {
+    return NextResponse.json(
+      { error: "RESEND_FROM_EMAIL is missing. Add a verified sender address for Resend before sending email." },
+      { status: 503 }
+    );
+  }
+
+  if (!resendApiKey && sendGridApiKey && !sendGridFromEmail) {
+    return NextResponse.json(
+      { error: "SENDGRID_FROM_EMAIL is missing. Add a verified sender address before sending email." },
       { status: 503 }
     );
   }
@@ -67,7 +83,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const senderEmail = from_email || process.env.RESEND_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || "invoices@hiringround.online";
+    const senderEmail = from_email || resendFromEmail || sendGridFromEmail || "invoices@hiringround.online";
     const senderName = from_name || process.env.NEXT_PUBLIC_STORE_NAME || "MobileHub Delhi";
 
     const htmlBody = body.includes("<") ? body : `

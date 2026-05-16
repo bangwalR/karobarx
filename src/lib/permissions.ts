@@ -1,4 +1,4 @@
-export type AdminRole = "super_admin" | "admin" | "manager" | "staff";
+export type AdminRole = "super_admin" | "admin" | "manager" | "staff" | "sales" | "support" | "viewer";
 export type PermissionAction = "read" | "write" | "delete";
 
 type ModulePermission = Partial<Record<PermissionAction, boolean>>;
@@ -77,6 +77,60 @@ export const ROLE_PERMISSIONS: Record<AdminRole, RolePermissionMap> = {
     users: { read: false, write: false, delete: false },
     credentials: { read: false, write: false },
   },
+  sales: {
+    dashboard: { read: true },
+    inventory: { read: true, write: false, delete: false },
+    customers: { read: true, write: true, delete: false },
+    orders: { read: true, write: true, delete: false },
+    inquiries: { read: true, write: true, delete: false },
+    leads: { read: true, write: true, delete: false },
+    marketing: { read: false, write: false, delete: false },
+    conversations: { read: true, write: true },
+    communities: { read: false, write: false, delete: false },
+    calendar: { read: true, write: true, delete: false },
+    telegram: { read: false, write: false },
+    ai_assistant: { read: false, write: false },
+    analytics: { read: true },
+    settings: { read: false, write: false },
+    users: { read: false, write: false, delete: false },
+    credentials: { read: false, write: false },
+  },
+  support: {
+    dashboard: { read: true },
+    inventory: { read: true, write: false, delete: false },
+    customers: { read: true, write: true, delete: false },
+    orders: { read: true, write: false, delete: false },
+    inquiries: { read: true, write: true, delete: false },
+    leads: { read: true, write: false, delete: false },
+    marketing: { read: false, write: false, delete: false },
+    conversations: { read: true, write: true },
+    communities: { read: false, write: false, delete: false },
+    calendar: { read: true, write: false, delete: false },
+    telegram: { read: false, write: false },
+    ai_assistant: { read: false, write: false },
+    analytics: { read: true },
+    settings: { read: false, write: false },
+    users: { read: false, write: false, delete: false },
+    credentials: { read: false, write: false },
+  },
+  viewer: {
+    dashboard: { read: true },
+    inventory: { read: true, write: false, delete: false },
+    customers: { read: true, write: false, delete: false },
+    orders: { read: true, write: false, delete: false },
+    inquiries: { read: true, write: false, delete: false },
+    leads: { read: true, write: false, delete: false },
+    marketing: { read: false, write: false, delete: false },
+    conversations: { read: false, write: false },
+    communities: { read: false, write: false, delete: false },
+    calendar: { read: true, write: false, delete: false },
+    telegram: { read: false, write: false },
+    ai_assistant: { read: false, write: false },
+    analytics: { read: true },
+    settings: { read: false, write: false },
+    users: { read: false, write: false, delete: false },
+    credentials: { read: false, write: false },
+  },
 };
 
 const SETTINGS_TAB_ROLES: Record<string, AdminRole[]> = {
@@ -93,7 +147,15 @@ const SETTINGS_TAB_ROLES: Record<string, AdminRole[]> = {
 };
 
 export function normalizeRole(role?: string | null): AdminRole {
-  if (role === "admin" || role === "manager" || role === "staff" || role === "super_admin") {
+  if (
+    role === "admin" ||
+    role === "manager" ||
+    role === "staff" ||
+    role === "super_admin" ||
+    role === "sales" ||
+    role === "support" ||
+    role === "viewer"
+  ) {
     return role;
   }
   return "staff";

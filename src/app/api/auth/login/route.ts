@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { logAuthEvent } from "@/lib/auth/audit";
+import { validatePasswordLogin } from "@/lib/auth/password-login";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -14,54 +16,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // First, try to find user in database
-  const { data: user, error: userError } = await supabase
-    .from("admin_users")
-    .select("*")
-    .or(`username.eq.${username},email.eq.${username}`)
-    .single();
+  const validation = await validatePasswordLogin(username, password);
 
-  if (userError && userError.code !== "PGRST116") {
-    console.error("Error finding user:", userError);
-    return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
-  }
+  if (validation.ok) {
+    const { user } = validation;
 
-  if (user) {
-    // Verify password using database function
-    const { data: isValid, error: verifyError } = await supabase
-      .rpc("verify_password", { password, hash: user.password_hash });
-
-    if (verifyError) {
-      console.error("Error verifying password:", verifyError);
-      return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
-    }
-
-    if (!isValid) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-    }
-
-    if (!user.is_active) {
-      return NextResponse.json({ error: "Account is deactivated" }, { status: 403 });
-    }
-
-    // Update last login
-    await supabase
-      .from("admin_users")
-      .update({
-        last_login_at: new Date().toISOString(),
-        login_count: (user.login_count || 0) + 1,
-      })
-      .eq("id", user.id);
-
-    // Log activity
-    await supabase.from("activity_logs").insert([{
-      user_id: user.id,
-      action: "login",
-      description: `User ${user.username} logged in`,
-      ip_address: request.headers.get("x-forwarded-for") || "unknown",
-    }]);
-
-    // Return user data (without password)
     return NextResponse.json({
       success: true,
       user: {
@@ -69,42 +28,47 @@ export async function POST(request: NextRequest) {
         username: user.username,
         email: user.email,
         full_name: user.full_name,
-        avatar_url: user.avatar_url,
         role: user.role,
         permissions: user.permissions,
       },
     });
   }
 
-  // Fallback: Check environment variables (for backward compatibility / initial setup)
-  const envUsername = process.env.NEXT_PUBLIC_ADMIN_USERNAME || "admin";
-  const envPassword = process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
+  if (validation.userId && validation.status === 401 && validation.error.startsWith("Invalid password.")) {
+    const { data: currentUser } = await supabase
+      .from("admin_users")
+      .select("failed_login_attempts")
+      .eq("id", validation.userId)
+      .maybeSingle();
 
-  // Only allow env-var fallback if NEXT_PUBLIC_ADMIN_PASSWORD is explicitly set
-  if (envPassword && username === envUsername && password === envPassword) {
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: "env-admin",
-        username: envUsername,
-        email: process.env.ADMIN_EMAIL || "admin@example.com",
-        full_name: "Admin (Legacy)",
-        role: "super_admin",
-        permissions: {
-          dashboard: { read: true },
-          inventory: { read: true, write: true, delete: true },
-          customers: { read: true, write: true, delete: true },
-          orders: { read: true, write: true, delete: true },
-          inquiries: { read: true, write: true, delete: true },
-          leads: { read: true, write: true, delete: true },
-          marketing: { read: true, write: true, delete: true },
-          conversations: { read: true, write: true },
-          settings: { read: true, write: true },
-          users: { read: true, write: true, delete: true },
-        },
-      },
+    const nextAttempts = (currentUser?.failed_login_attempts || 0) + 1;
+    const lockedUntil = nextAttempts >= 5
+      ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+      : null;
+
+    await supabase
+      .from("admin_users")
+      .update({
+        failed_login_attempts: nextAttempts,
+        locked_until: lockedUntil,
+        last_failed_login_at: new Date().toISOString(),
+      })
+      .eq("id", validation.userId);
+
+    await logAuthEvent({
+      userId: validation.userId,
+      action: "failed_login",
+      description: `Failed password login for ${username}`,
     });
   }
 
-  return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  if (validation.status === 423) {
+    return NextResponse.json({ error: validation.error }, { status: 423 });
+  }
+
+  if (validation.status === 403) {
+    return NextResponse.json({ error: validation.error }, { status: 403 });
+  }
+
+  return NextResponse.json({ error: validation.error }, { status: 401 });
 }

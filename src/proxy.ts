@@ -2,6 +2,22 @@ import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import { hasPermission } from "@/lib/permissions";
 
+const INTERNAL_ONLY_API_PREFIXES = [
+  "/api/cleanup-all",
+  "/api/debug-config",
+  "/api/debug-ig-conversations",
+  "/api/fix-lead-profiles",
+  "/api/fix-setup",
+  "/api/notifications/test",
+  "/api/phones/cleanup",
+  "/api/simple-ig-test",
+  "/api/test-ig-api",
+  "/api/test-ig-connection",
+  "/api/test-ig-leads",
+  "/api/test-ig-pages",
+  "/api/test-nvidia",
+];
+
 const ADMIN_ROUTE_MODULES: { prefix: string; module: string }[] = [
   { prefix: "/admin/inventory", module: "inventory" },
   { prefix: "/admin/customers", module: "customers" },
@@ -20,6 +36,18 @@ const ADMIN_ROUTE_MODULES: { prefix: string; module: string }[] = [
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
+  const internalSecret = process.env.INTERNAL_API_SECRET;
+  const providedSecret = req.headers.get("x-internal-secret");
+
+  if (INTERNAL_ONLY_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    if (internalSecret && providedSecret === internalSecret) {
+      return NextResponse.next();
+    }
+
+    if (!req.auth || req.auth.user?.role !== "super_admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
 
   // Only guard /admin routes
   if (!pathname.startsWith("/admin")) return NextResponse.next();
@@ -58,5 +86,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/api/:path*"],
 };

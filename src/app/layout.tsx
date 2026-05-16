@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -8,16 +7,6 @@ import { SessionProvider } from "@/components/session-provider";
 import "./globals.css";
 
 const GA_ID = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "MobileHub Delhi - CRM Dashboard",
@@ -49,9 +38,7 @@ export default function RootLayout({
           </>
         )}
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="antialiased">
         <SessionProvider>
           <ThemeProvider>
             <BusinessProvider>
