@@ -115,7 +115,7 @@ function SetupWizard() {
     store_name: "",
     tagline: "",
     description: "",
-    logo_url: "",
+    logo_url: "/logo.png",
     phone: "",
     email: "",
     website: "",

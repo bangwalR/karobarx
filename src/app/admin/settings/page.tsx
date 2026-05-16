@@ -141,7 +141,7 @@ const defaultSettings: Settings = {
   store_name: "MobileHub Delhi",
   tagline: "Premium Second-Hand Phones in Delhi",
   description: "Delhi's most trusted destination for certified pre-owned smartphones. Quality guaranteed with warranty.",
-  logo_url: "",
+  logo_url: "/logo.png",
   phone: "+91 99107 24940",
   email: "contact@mobilehubdelhi.com",
   website: "https://mobilehubdelhi.com",
@@ -1876,25 +1876,19 @@ export default function SettingsPage() {
             </h2>
             
             <div className="flex items-center gap-6">
-              {settings.logo_url ? (
-                <div className="relative">
-                  <img 
-                    src={settings.logo_url} 
-                    alt="Store Logo" 
-                    className="w-24 h-24 rounded-2xl object-cover"
-                  />
-                  <button
-                    onClick={() => updateSetting("logo_url", "")}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-3xl font-bold">
-                  {settings.store_name.charAt(0)}
-                </div>
-              )}
+              <div className="relative">
+                <img 
+                  src={settings.logo_url || "/logo.png"} 
+                  alt="Store Logo" 
+                  className="w-24 h-24 rounded-2xl object-cover"
+                />
+                <button
+                  onClick={() => updateSetting("logo_url", "/logo.png")}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
               <div>
                 <CloudinaryUpload
                   onUpload={(urls) => {

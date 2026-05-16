@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         config: {
           ...template,
           store_name: effectiveSettings?.store_name ?? (template as unknown as Record<string,unknown>).store_name,
-          logo_url:   effectiveSettings?.logo_url   ?? "",
+          logo_url:   effectiveSettings?.logo_url   ?? "/logo.png",
           setup_completed: true, // Default to true to prevent redirect loops
         },
         is_default: true,
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       config: {
         ...data,
         store_name: effectiveSettings?.store_name ?? data.store_name ?? data.display_name,
-        logo_url:   effectiveSettings?.logo_url   ?? data.logo_url ?? "",
+        logo_url:   effectiveSettings?.logo_url   ?? data.logo_url ?? "/logo.png",
       },
       is_default: false,
     });
