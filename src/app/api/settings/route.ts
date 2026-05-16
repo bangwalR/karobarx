@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       store_name: "MobileHub Delhi",
       tagline: "Premium Second-Hand Phones in Delhi",
       description: "Delhi's most trusted destination for certified pre-owned smartphones. Quality guaranteed with warranty.",
+      logo_url: "/logo.png",
       phone: "+91 99107 24940",
       email: "contact@mobilehubdelhi.com",
       website: "https://mobilehubdelhi.com",

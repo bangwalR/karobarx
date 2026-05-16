@@ -11,6 +11,11 @@ const GA_ID = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
 export const metadata: Metadata = {
   title: "MobileHub Delhi - CRM Dashboard",
   description: "CRM and business management dashboard for MobileHub Delhi.",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({
